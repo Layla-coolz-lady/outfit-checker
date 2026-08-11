@@ -1,0 +1,236 @@
+:root {
+  font-family: Arial, sans-serif;
+  color: #111;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f7f7f7;
+}
+
+.app-shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.top-buttons {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem 1rem 0;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.top-buttons .page-switch {
+  display: block;
+}
+
+.top-buttons .page-switch.hidden {
+  display: none;
+}
+
+.edit-status {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0;
+  font-weight: bold;
+  color: #1b8065;
+}
+
+.edit-status.active {
+  display: flex;
+}
+
+.edit-dots {
+  min-width: 1.2rem;
+  text-align: left;
+}
+
+.page-switch {
+  margin: 0;
+}
+
+.edit-button {
+  margin-left: auto;
+  background: #f0f0f0;
+  color: #111;
+}
+
+.edit-button.active {
+  background: #1b8065;
+  color: white;
+  border-color: #1b8065;
+}
+
+.blank-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gallery-page {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 600px;
+}
+
+.gallery-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.gallery-item {
+  border: 1px solid #ccc;
+  padding: 0.5rem;
+  background: white;
+}
+
+.gallery-item img {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  display: block;
+}
+
+.note {
+  margin-top: -0.5rem;
+  color: #444;
+}
+
+.deck-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.deck {
+  background: white;
+  border: 1px solid #ccc;
+  padding: 1rem;
+}
+
+.deck.edit-mode {
+  background: #80ba9a;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.75rem 0;
+}
+
+li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+li.dragging {
+  opacity: 0.6;
+}
+
+li.drag-over {
+  border-top: 2px solid #1b8065;
+}
+
+li .content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.name-edit-input {
+  padding: 0.35rem;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  min-width: 120px;
+}
+
+.add-photo-button {
+  margin-left: 0.25rem;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.image-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-direction: row;
+}
+
+.deck.edit-mode .image-entry {
+  flex-direction: row-reverse;
+  margin-left: auto;
+}
+
+li img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border: 1px solid #ddd;
+  cursor: pointer;
+}
+
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.image-viewer.active {
+  display: flex;
+}
+
+.image-viewer img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+}
+
+.item-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.deck.edit-mode .item-form {
+  display: none;
+}
+
+input {
+  flex: 1;
+  padding: 0.4rem;
+}
+
+button {
+  padding: 0.4rem 0.6rem;
+}
+
+@media (max-width: 700px) {
+  .deck-grid {
+    grid-template-columns: 1fr;
+  }
+}
