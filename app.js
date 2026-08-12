@@ -755,7 +755,7 @@ function bindMainPageEvents() {
   if (menuOutfit) {
     menuOutfit.addEventListener("click", () => {
       closeSidebar();
-      showBlankPage("Outfit Maker");
+      showOutfitMakerPage();
     });
   }
 
@@ -970,6 +970,251 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+let outfitItems = [];
+let draggedOutfitItemIndex = null;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+
+function showOutfitMakerPage() {
+  document.body.innerHTML = `
+    <div class="top-buttons">
+      <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
+      <button type="button" id="page-back-button" class="page-switch" aria-label="Back">←</button>
+      <button type="button" id="add-outfit-button" class="page-switch" aria-label="Add item">+</button>
+    </div>
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
+    <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
+      <button type="button" id="sidebar-close" class="sidebar-close" aria-label="Close menu">×</button>
+      <nav class="sidebar-nav" aria-label="Page options">
+        <button type="button" id="menu-closet" class="sidebar-item">The Closet</button>
+        <button type="button" id="menu-favorites" class="sidebar-item">Favorites</button>
+        <button type="button" id="menu-gallery" class="sidebar-item">The Image Gallery</button>
+      </nav>
+    </aside>
+    <main class="outfit-maker-page">
+      <h2>Outfit Maker</h2>
+      <div id="outfit-display" class="outfit-display"></div>
+    </main>
+  `;
+
+  const menuButton = document.getElementById("menu-button");
+  const pageBackButton = document.getElementById("page-back-button");
+  const addOutfitButton = document.getElementById("add-outfit-button");
+  const sidebar = document.getElementById("sidebar");
+  const sidebarBackdrop = document.getElementById("sidebar-backdrop");
+  const sidebarClose = document.getElementById("sidebar-close");
+  const menuCloset = document.getElementById("menu-closet");
+  const menuFavorites = document.getElementById("menu-favorites");
+  const menuGallery = document.getElementById("menu-gallery");
+
+  const openSidebar = () => {
+    sidebar.classList.remove("hidden");
+    sidebarBackdrop.classList.remove("hidden");
+    sidebar.setAttribute("aria-hidden", "false");
+  };
+
+  const closeSidebar = () => {
+    sidebar.classList.add("hidden");
+    sidebarBackdrop.classList.add("hidden");
+    sidebar.setAttribute("aria-hidden", "true");
+  };
+
+  if (menuButton) {
+    menuButton.addEventListener("click", openSidebar);
+  }
+
+  if (sidebarClose) {
+    sidebarClose.addEventListener("click", closeSidebar);
+  }
+
+  if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener("click", closeSidebar);
+  }
+
+  if (menuCloset) {
+    menuCloset.addEventListener("click", () => {
+      showMainPage();
+    });
+  }
+
+  if (menuFavorites) {
+    menuFavorites.addEventListener("click", () => {
+      closeSidebar();
+      showFavoritesPage();
+    });
+  }
+
+  if (menuGallery) {
+    menuGallery.addEventListener("click", () => {
+      closeSidebar();
+      showImagesPage();
+    });
+  }
+
+  if (pageBackButton) {
+    pageBackButton.addEventListener("click", () => {
+      showMainPage();
+    });
+  }
+
+  if (addOutfitButton) {
+    addOutfitButton.addEventListener("click", () => {
+      showCategorySelectionDialog();
+    });
+  }
+
+  renderOutfitDisplay();
+}
+
+function showCategorySelectionDialog() {
+  const categoryOptions = deckNames.map(name => `<option value="${name}">${name.charAt(0).toUpperCase() + name.slice(1)}</option>`).join("");
+  
+  const modalHtml = `
+    <div id="category-select-modal" class="modal" style="display: flex;">
+      <div class="modal-content">
+        <h3>Select Category</h3>
+        <div style="margin: 1rem 0;">
+          <label for="outfit-category-select">Category:</label>
+          <select id="outfit-category-select" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+            ${categoryOptions}
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="category-add-confirm">Add</button>
+          <button type="button" id="category-add-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+  
+  const modal = document.getElementById("category-select-modal");
+  const categorySelect = document.getElementById("outfit-category-select");
+  const confirmBtn = document.getElementById("category-add-confirm");
+  const cancelBtn = document.getElementById("category-add-cancel");
+  
+  const closeModal = () => {
+    modal.remove();
+  };
+  
+  confirmBtn.addEventListener("click", () => {
+    const selectedDeck = categorySelect.value;
+    if (selectedDeck && decks[selectedDeck] && decks[selectedDeck].length > 0) {
+      const firstItem = decks[selectedDeck][0];
+      // Initialize position with some offset based on number of items
+      const x = 20 + (outfitItems.length * 30);
+      const y = 80 + (outfitItems.length * 30);
+      outfitItems.push({ item: firstItem, deck: selectedDeck, x, y });
+      closeModal();
+      renderOutfitDisplay();
+    }
+  });
+  
+  cancelBtn.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+}
+
+function renderOutfitDisplay() {
+  const outfitDisplay = document.getElementById("outfit-display");
+  if (!outfitDisplay) {
+    return;
+  }
+
+  if (outfitItems.length === 0) {
+    outfitDisplay.innerHTML = "<p>No items added yet. Click + to add items from your closet.</p>";
+    return;
+  }
+
+  const itemsHtml = outfitItems.map((entry, index) => {
+    const item = entry.item;
+    let content = "";
+
+    if (isImageEntry(item)) {
+      content = `<img src="${item.src}" alt="${item.name || 'item'}" />
+                 ${item.name ? `<span class="item-label">${item.name}</span>` : ""}`;
+    } else if (isImageUrl(item) || isDataUrl(item)) {
+      content = `<img src="${item}" alt="item" />`;
+    } else {
+      const label = getItemLabel(item);
+      content = `<span class="item-label">${label}</span>`;
+    }
+
+    const x = entry.x || 0;
+    const y = entry.y || 0;
+
+    return `
+      <div class="outfit-item" data-index="${index}" style="left: ${x}px; top: ${y}px;">
+        ${content}
+        <button class="remove-outfit-item" data-index="${index}">×</button>
+      </div>
+    `;
+  }).join("");
+
+  outfitDisplay.innerHTML = itemsHtml;
+
+  // Add event listeners for dragging
+  document.querySelectorAll(".outfit-item").forEach((item) => {
+    item.addEventListener("mousedown", handleOutfitItemMouseDown);
+  });
+
+  document.querySelectorAll(".remove-outfit-item").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const index = Number(e.target.dataset.index);
+      outfitItems.splice(index, 1);
+      renderOutfitDisplay();
+    });
+  });
+}
+
+function handleOutfitItemMouseDown(e) {
+  // Don't drag if clicking the remove button
+  if (e.target.closest(".remove-outfit-item")) {
+    return;
+  }
+
+  const item = e.currentTarget;
+  const index = Number(item.dataset.index);
+  const rect = item.getBoundingClientRect();
+  const display = document.getElementById("outfit-display");
+  const displayRect = display.getBoundingClientRect();
+
+  draggedOutfitItemIndex = index;
+  dragOffsetX = e.clientX - rect.left;
+  dragOffsetY = e.clientY - rect.top;
+
+  const handleMouseMove = (moveEvent) => {
+    if (draggedOutfitItemIndex === null) return;
+
+    const newX = moveEvent.clientX - displayRect.left - dragOffsetX;
+    const newY = moveEvent.clientY - displayRect.top - dragOffsetY;
+
+    // Clamp to container bounds (with some margin)
+    const maxX = displayRect.width - 140; // min-width of items
+    const maxY = displayRect.height - 160; // min-height of items
+    const clampedX = Math.max(0, Math.min(newX, maxX));
+    const clampedY = Math.max(0, Math.min(newY, maxY));
+
+    outfitItems[draggedOutfitItemIndex].x = clampedX;
+    outfitItems[draggedOutfitItemIndex].y = clampedY;
+
+    item.style.left = clampedX + "px";
+    item.style.top = clampedY + "px";
+  };
+
+  const handleMouseUp = () => {
+    draggedOutfitItemIndex = null;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+  };
+
+  document.addEventListener("mousemove", handleMouseMove);
+  document.addEventListener("mouseup", handleMouseUp);
+}
+
 function showBlankPage(message) {
   document.body.innerHTML = `
     <div class="top-buttons">
@@ -1144,7 +1389,7 @@ function showImagesPage() {
   if (menuOutfit) {
     menuOutfit.addEventListener("click", () => {
       closeSidebar();
-      showBlankPage("Outfit Maker");
+      showOutfitMakerPage();
     });
   }
 
@@ -1377,7 +1622,7 @@ function showFavoritesPage() {
   if (menuOutfit) {
     menuOutfit.addEventListener("click", () => {
       closeSidebar();
-      showBlankPage("Outfit Maker");
+      showOutfitMakerPage();
     });
   }
 
