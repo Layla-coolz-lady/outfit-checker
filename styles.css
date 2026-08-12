@@ -18,6 +18,10 @@ body {
   padding: 1.5rem;
 }
 
+.app-shell h1 {
+  text-align: center;
+}
+
 .top-buttons {
   display: flex;
   gap: 0.5rem;
@@ -30,8 +34,101 @@ body {
   display: block;
 }
 
+.menu-button {
+  font-size: 1.2rem;
+  width: 2.8rem;
+  height: 2.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 900;
+}
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 260px;
+  height: 100vh;
+  background: white;
+  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  gap: 1rem;
+  transform: translateX(0);
+  transition: transform 0.3s ease;
+}
+
+.sidebar.hidden {
+  transform: translateX(-100%);
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 900;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.sidebar-backdrop:not(.hidden) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidebar-close {
+  align-self: flex-end;
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sidebar-item {
+  padding: 0.75rem 1rem;
+  border: 1px solid #ccc;
+  background: #f7f7f7;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-item:hover {
+  background: #eef2f4;
+}
+
 .top-buttons .page-switch.hidden {
   display: none;
+}
+
+.add-category-button {
+  width: 2.8rem;
+  height: 2.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.add-category-button:hover {
+  background: #e8e8e8;
 }
 
 .edit-status {
@@ -154,6 +251,149 @@ li .content {
   flex: 1;
 }
 
+.deck-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.delete-deck-button {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ccc;
+  background: #fff1f1;
+  color: #a12222;
+  cursor: pointer;
+  border-radius: 4px;
+  display: none;
+}
+
+.deck.edit-mode .delete-deck-button {
+  display: inline-flex;
+}
+
+.delete-deck-button:hover {
+  background: #ffd6d6;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.modal.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.modal:not(.hidden) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  width: min(90vw, 380px);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.16);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+button.danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  background: #d9424a;
+  color: white;
+  border: none;
+}
+
+button.danger:hover {
+  background: #c83840;
+}
+
+.modal-content button:not(.danger) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  padding: 0.65rem 1rem;
+  border: 1px solid #ccc;
+  background: #f7f7f7;
+  color: #111;
+  cursor: pointer;
+}
+
+.modal-content button:not(.danger):hover {
+  background: #eee;
+}
+
+.collapse-toggle {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ccc;
+  background: #fafafa;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.collapse-toggle:hover {
+  background: #eee;
+}
+
+.collapsed-note {
+  color: #555;
+  font-size: 0.9rem;
+  min-height: 1.2rem;
+  margin-bottom: 0.6rem;
+}
+
+.deck ul,
+.deck .item-form {
+  max-height: 999px;
+  overflow: hidden;
+  opacity: 1;
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+}
+
+.deck.collapsed ul,
+.deck.collapsed .item-form {
+  max-height: 0;
+  opacity: 0;
+}
+
+.deck.collapsed {
+  opacity: 0.95;
+}
+
 .name-edit-input {
   padding: 0.35rem;
   border: 1px solid #ccc;
@@ -218,6 +458,10 @@ li img {
 
 .deck.edit-mode .item-form {
   display: none;
+}
+
+.deck.edit-mode ul {
+  opacity: 1;
 }
 
 input {

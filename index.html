@@ -8,21 +8,36 @@
   </head>
   <body>
     <div class="top-buttons">
-      <button id="page-switch" class="page-switch">My Favorites</button>
-      <button id="images-switch" class="page-switch">The Image Gallery</button>
-      <button id="edit-button" class="page-switch edit-button">Edit</button>
+      <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
+      <button type="button" id="edit-button" class="page-switch edit-button">Edit</button>
+      <button type="button" id="add-category-button" class="page-switch add-category-button hidden" aria-label="Add category">+</button>
     </div>
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
+    <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
+      <button type="button" id="sidebar-close" class="sidebar-close" aria-label="Close menu">×</button>
+      <nav class="sidebar-nav" aria-label="Page options">
+        <button type="button" id="menu-favorites" class="sidebar-item">My Favorites</button>
+        <button type="button" id="menu-gallery" class="sidebar-item">The Image Gallery</button>
+        <button type="button" id="menu-outfit" class="sidebar-item">Outfit Maker</button>
+      </nav>
+    </aside>
     <div id="edit-status" class="edit-status" aria-live="polite">
       <span>Editing mode</span>
       <span id="edit-dots" class="edit-dots">.</span>
     </div>
     <main class="app-shell">
       <h1>The Closet</h1>
-      <p class="note">Put clothes into the right pile.</p>
 
       <div class="deck-grid">
-        <section class="deck">
-          <h2>Shirts</h2>
+        <section class="deck" data-deck="shirts">
+          <div class="deck-header">
+            <h2>Shirts</h2>
+            <div class="header-actions">
+              <button type="button" class="collapse-toggle" data-deck="shirts">Collapse</button>
+              <button type="button" class="delete-deck-button" data-deck="shirts">🗑</button>
+            </div>
+          </div>
+          <div class="collapsed-note"></div>
           <ul id="shirts-list"></ul>
           <form class="item-form" data-deck="shirts">
             <input type="text" placeholder="Type text" />
@@ -30,8 +45,15 @@
           </form>
         </section>
 
-        <section class="deck">
-          <h2>Pants</h2>
+        <section class="deck" data-deck="pants">
+          <div class="deck-header">
+            <h2>Pants</h2>
+            <div class="header-actions">
+              <button type="button" class="collapse-toggle" data-deck="pants">Collapse</button>
+              <button type="button" class="delete-deck-button" data-deck="pants">🗑</button>
+            </div>
+          </div>
+          <div class="collapsed-note"></div>
           <ul id="pants-list"></ul>
           <form class="item-form" data-deck="pants">
             <input type="text" placeholder="Type text" />
@@ -39,8 +61,15 @@
           </form>
         </section>
 
-        <section class="deck">
-          <h2>Shoes</h2>
+        <section class="deck" data-deck="shoes">
+          <div class="deck-header">
+            <h2>Shoes</h2>
+            <div class="header-actions">
+              <button type="button" class="collapse-toggle" data-deck="shoes">Collapse</button>
+              <button type="button" class="delete-deck-button" data-deck="shoes">🗑</button>
+            </div>
+          </div>
+          <div class="collapsed-note"></div>
           <ul id="shoes-list"></ul>
           <form class="item-form" data-deck="shoes">
             <input type="text" placeholder="Type text" />
@@ -52,6 +81,17 @@
 
     <div id="image-viewer" class="image-viewer" aria-hidden="true">
       <img id="viewer-image" src="" alt="Full-size clothing item" />
+    </div>
+
+    <div id="delete-confirmation" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="delete-confirmation-title">
+      <div class="modal-content">
+        <h2 id="delete-confirmation-title">Are you sure?</h2>
+        <p>This will delete the category and all items inside it.</p>
+        <div class="modal-actions">
+          <button type="button" id="confirm-delete-button" class="danger">Yes I’m sure</button>
+          <button type="button" id="cancel-delete-button">Nevermind</button>
+        </div>
+      </div>
     </div>
 
     <script src="app.js"></script>
