@@ -16,10 +16,24 @@ body {
   max-width: 900px;
   margin: 0 auto;
   padding: 1.5rem;
+  text-align: center;
 }
 
-.app-shell h1 {
-  text-align: center;
+.page-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 2rem;
+  margin: 0 auto;
+}
+
+.title-text {
+  transition: opacity 0.25s ease;
+}
+
+.app-shell.editing .title-text {
+  opacity: 1;
 }
 
 .top-buttons {
@@ -181,6 +195,66 @@ body {
   max-width: 600px;
 }
 
+.top-buttons {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem 1rem 0;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.favorites-page {
+  min-height: calc(100vh - 4rem);
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.favorites-page h2 {
+  text-align: center;
+}
+
+.empty-favorites-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.empty-message {
+  padding: 1rem;
+  color: #666;
+  font-style: italic;
+}
+
+.favorites-heart {
+  font-size: 6rem;
+  color: #d43d4a;
+  cursor: pointer;
+}
+
+.page-switch {
+  margin: 0;
+}
+
+.color-picker-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+}
+
+.color-picker-label input {
+  width: 4rem;
+  height: 2.5rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
 .gallery-list {
   display: flex;
   flex-wrap: wrap;
@@ -231,8 +305,10 @@ li {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid #eee;
+  padding: 0.75rem;
+  border: 1px solid #eee;
+  border-radius: 0.75rem;
+  background: white;
 }
 
 li.dragging {
@@ -249,6 +325,26 @@ li .content {
   gap: 0.5rem;
   min-width: 0;
   flex: 1;
+}
+
+..favorite-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  min-width: 1.5rem;
+  font-size: 1rem;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 0;
+}
+
+.favorite-toggle.filled {
+  color: #d43d4a;
 }
 
 .deck-header {
@@ -391,7 +487,33 @@ button.danger:hover {
 }
 
 .deck.collapsed {
-  opacity: 0.95;
+  opacity: 0.92;
+  padding: 0.45rem 0.5rem;
+  transform: scale(0.975);
+  margin-bottom: 0.5rem;
+  transition: transform 160ms ease, padding 160ms ease, opacity 160ms ease;
+}
+
+.deck.collapsed .deck-header {
+  font-size: 0.9rem;
+}
+
+.deck.collapsed li {
+  padding: 0.4rem;
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.deck.collapsed .content img,
+.deck.collapsed li img {
+  width: 48px;
+  height: 48px;
+}
+
+.deck.collapsed .collapse-toggle {
+  width: 1.7rem;
+  height: 1.7rem;
+  font-size: 0.9rem;
 }
 
 .name-edit-input {
