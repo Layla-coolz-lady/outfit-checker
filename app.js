@@ -1054,6 +1054,10 @@ function showBlankPage(message) {
 
 function showImagesPage() {
   const gallery = loadGallery();
+  const pendingTarget = loadPendingImageTarget();
+  const isChoosingMode = Boolean(pendingTarget && pendingTarget.deck && Number.isInteger(pendingTarget.index));
+  const pageTitle = isChoosingMode ? "Choosing image..." : "The Image Gallery";
+
   document.body.innerHTML = `
     <div class="top-buttons">
       <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
@@ -1069,15 +1073,17 @@ function showImagesPage() {
       </nav>
     </aside>
     <div class="gallery-page">
-      <h2>The Image Gallery</h2>
-      <form id="gallery-form">
-        <input id="gallery-url" type="text" placeholder="Paste image URL" />
-        <button type="submit">Add image</button>
-      </form>
-      <div style="text-align: center; margin: 1rem 0;">
-        <label for="gallery-file-input" style="display: block; margin-bottom: 0.5rem;">Or upload from device:</label>
-        <input type="file" id="gallery-file-input" accept="image/*" multiple style="display: block; margin: 0 auto;" />
-      </div>
+      <h2>${pageTitle}</h2>
+      ${!isChoosingMode ? `
+        <form id="gallery-form">
+          <input id="gallery-url" type="text" placeholder="Paste image URL" />
+          <button type="submit">Add image</button>
+        </form>
+        <div style="text-align: center; margin: 1rem 0;">
+          <label for="gallery-file-input" style="display: block; margin-bottom: 0.5rem;">Or upload from device:</label>
+          <input type="file" id="gallery-file-input" accept="image/*" multiple style="display: block; margin: 0 auto;" />
+        </div>
+      ` : ""}
       <div class="gallery-list">
         ${gallery.length ? gallery.map((src) => `
           <div class="gallery-item">
@@ -1148,45 +1154,60 @@ function showImagesPage() {
     });
   }
 
-  document.getElementById("gallery-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const input = document.getElementById("gallery-url");
-    const value = input.value.trim();
-    if (!value) {
-      return;
-    }
+  if (!isChoosingMode) {
+    document.getElementById("gallery-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = document.getElementById("gallery-url");
+      const value = input.value.trim();
+      if (!value) {
+        return;
+      }
 
-    saveGallery([value]);
-    showImagesPage();
-  });
-
-  const fileInput = document.getElementById("gallery-file-input");
-  if (fileInput) {
-    fileInput.addEventListener("change", (event) => {
-      const files = Array.from(event.target.files);
-      if (files.length === 0) return;
-
-      const dataUrls = [];
-      let loaded = 0;
-
-      files.forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          dataUrls.push(e.target.result);
-          loaded++;
-          if (loaded === files.length) {
-            saveGallery(dataUrls);
-            showImagesPage();
-          }
-        };
-        reader.readAsDataURL(file);
-      });
+      saveGallery([value]);
+      showImagesPage();
     });
+
+    const fileInput = document.getElementById("gallery-file-input");
+    if (fileInput) {
+      fileInput.addEventListener("change", (event) => {
+        const files = Array.from(event.target.files);
+        if (files.length === 0) return;
+
+        const dataUrls = [];
+        let loaded = 0;
+
+        files.forEach((file) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            dataUrls.push(e.target.result);
+            loaded++;
+            if (loaded === files.length) {
+              saveGallery(dataUrls);
+              showImagesPage();
+            }
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+    }
   }
 
   document.querySelectorAll(".gallery-use").forEach((button) => {
     button.addEventListener("click", () => {
       const imageSrc = button.dataset.src;
+
+      // If a pending image target exists (user clicked an "add photo" button
+      // in edit mode), insert the chosen image directly at that deck/index
+      // and return to the main page.
+      const pendingTarget = loadPendingImageTarget();
+      if (pendingTarget && pendingTarget.deck && Number.isInteger(pendingTarget.index) && decks[pendingTarget.deck]) {
+        decks[pendingTarget.deck][pendingTarget.index] = { src: imageSrc, name: "", favorite: false };
+        saveDecks();
+        clearPendingImageTarget();
+        showMainPage();
+        return;
+      }
+
       ensureGalleryImage(imageSrc);
       
       // Show modal to choose category and name
