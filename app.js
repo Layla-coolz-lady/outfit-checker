@@ -1074,6 +1074,10 @@ function showImagesPage() {
         <input id="gallery-url" type="text" placeholder="Paste image URL" />
         <button type="submit">Add image</button>
       </form>
+      <div style="text-align: center; margin: 1rem 0;">
+        <label for="gallery-file-input" style="display: block; margin-bottom: 0.5rem;">Or upload from device:</label>
+        <input type="file" id="gallery-file-input" accept="image/*" multiple style="display: block; margin: 0 auto;" />
+      </div>
       <div class="gallery-list">
         ${gallery.length ? gallery.map((src) => `
           <div class="gallery-item">
@@ -1156,28 +1160,89 @@ function showImagesPage() {
     showImagesPage();
   });
 
+  const fileInput = document.getElementById("gallery-file-input");
+  if (fileInput) {
+    fileInput.addEventListener("change", (event) => {
+      const files = Array.from(event.target.files);
+      if (files.length === 0) return;
+
+      const dataUrls = [];
+      let loaded = 0;
+
+      files.forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          dataUrls.push(e.target.result);
+          loaded++;
+          if (loaded === files.length) {
+            saveGallery(dataUrls);
+            showImagesPage();
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+  }
+
   document.querySelectorAll(".gallery-use").forEach((button) => {
     button.addEventListener("click", () => {
-      const value = button.dataset.src;
-      ensureGalleryImage(value);
-      const target = loadPendingImageTarget();
-
-      if (target) {
-        const existingItem = decks[target.deck][target.index];
-        const existingName = typeof existingItem === "string"
-          ? existingItem
-          : existingItem && existingItem.name
-            ? existingItem.name
-            : "";
-
-        decks[target.deck][target.index] = { src: value, name: existingName };
-        clearPendingImageTarget();
-      } else {
-        decks[button.dataset.deck].push({ src: value, name: "" });
-      }
-
-      saveDecks();
-      showMainPage();
+      const imageSrc = button.dataset.src;
+      ensureGalleryImage(imageSrc);
+      
+      // Show modal to choose category and name
+      const categoryOptions = deckNames.map(name => `<option value="${name}">${name.charAt(0).toUpperCase() + name.slice(1)}</option>`).join("");
+      
+      const modalHtml = `
+        <div id="image-add-modal" class="modal" style="display: flex;">
+          <div class="modal-content">
+            <h3>Add Image to Category</h3>
+            <div style="margin: 1rem 0;">
+              <label for="image-category-select">Category:</label>
+              <select id="image-category-select" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
+                ${categoryOptions}
+              </select>
+            </div>
+            <div style="margin: 1rem 0;">
+              <label for="image-name-input">Item Name (optional):</label>
+              <input type="text" id="image-name-input" placeholder="e.g. Red shirt" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box;" />
+            </div>
+            <div class="modal-actions">
+              <button type="button" id="image-add-confirm">Add</button>
+              <button type="button" id="image-add-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.body.insertAdjacentHTML("beforeend", modalHtml);
+      
+      const modal = document.getElementById("image-add-modal");
+      const categorySelect = document.getElementById("image-category-select");
+      const nameInput = document.getElementById("image-name-input");
+      const confirmBtn = document.getElementById("image-add-confirm");
+      const cancelBtn = document.getElementById("image-add-cancel");
+      
+      const closeModal = () => {
+        modal.remove();
+      };
+      
+      confirmBtn.addEventListener("click", () => {
+        const selectedDeck = categorySelect.value;
+        const itemName = nameInput.value.trim();
+        
+        if (selectedDeck && decks[selectedDeck]) {
+          const imageItem = { src: imageSrc, name: itemName, favorite: false };
+          decks[selectedDeck].push(imageItem);
+          saveDecks();
+          closeModal();
+          showImagesPage();
+        }
+      });
+      
+      cancelBtn.addEventListener("click", closeModal);
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeModal();
+      });
     });
   });
 }
