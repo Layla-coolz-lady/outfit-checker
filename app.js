@@ -974,6 +974,7 @@ let outfitItems = [];
 let draggedOutfitItemIndex = null;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
+let isDraggingOutfitItem = false;
 
 function showOutfitMakerPage() {
   document.body.innerHTML = `
@@ -1183,18 +1184,38 @@ function handleOutfitItemMouseDown(e) {
   const displayRect = display.getBoundingClientRect();
 
   draggedOutfitItemIndex = index;
+  isDraggingOutfitItem = false;
   dragOffsetX = e.clientX - rect.left;
   dragOffsetY = e.clientY - rect.top;
+
+  const initialX = e.clientX;
+  const initialY = e.clientY;
+  const dragThreshold = 5; // pixels
 
   const handleMouseMove = (moveEvent) => {
     if (draggedOutfitItemIndex === null) return;
 
+    // Check if moved enough to be considered a drag
+    const distance = Math.sqrt(
+      Math.pow(moveEvent.clientX - initialX, 2) + 
+      Math.pow(moveEvent.clientY - initialY, 2)
+    );
+
+    if (distance > dragThreshold) {
+      isDraggingOutfitItem = true;
+    }
+
+    if (!isDraggingOutfitItem) return;
+
     const newX = moveEvent.clientX - displayRect.left - dragOffsetX;
     const newY = moveEvent.clientY - displayRect.top - dragOffsetY;
 
-    // Clamp to container bounds (with some margin)
-    const maxX = displayRect.width - 140; // min-width of items
-    const maxY = displayRect.height - 160; // min-height of items
+    // Clamp to container bounds - use fixed item dimensions for bounds checking
+    const itemMinWidth = 140;
+    const itemMinHeight = 160;
+    const maxX = Math.max(0, displayRect.width - itemMinWidth);
+    const maxY = Math.max(0, displayRect.height - itemMinHeight);
+    
     const clampedX = Math.max(0, Math.min(newX, maxX));
     const clampedY = Math.max(0, Math.min(newY, maxY));
 
@@ -1206,13 +1227,96 @@ function handleOutfitItemMouseDown(e) {
   };
 
   const handleMouseUp = () => {
+    const index = draggedOutfitItemIndex;
     draggedOutfitItemIndex = null;
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
+
+    // If not dragged, show details popup
+    if (!isDraggingOutfitItem && index !== null) {
+      showOutfitItemDetails(index);
+    }
+
+    isDraggingOutfitItem = false;
   };
 
   document.addEventListener("mousemove", handleMouseMove);
   document.addEventListener("mouseup", handleMouseUp);
+}
+
+function showOutfitItemDetails(index) {
+  const entry = outfitItems[index];
+  if (!entry) return;
+
+  const item = entry.item;
+  const deckName = entry.deck;
+
+  let imageHtml = "";
+  let itemName = "";
+
+  if (isImageEntry(item)) {
+    imageHtml = `<img src="${item.src}" alt="${item.name || 'item'}" class="details-image" />`;
+    itemName = item.name || "Unnamed Item";
+  } else if (isImageUrl(item) || isDataUrl(item)) {
+    imageHtml = `<img src="${item}" alt="item" class="details-image" />`;
+    itemName = "Image Item";
+  } else {
+    itemName = getItemLabel(item) || "Unnamed Item";
+  }
+
+  const categoryTitle = deckName.charAt(0).toUpperCase() + deckName.slice(1);
+
+  const modalHtml = `
+    <div id="outfit-details-modal" class="modal outfit-details-modal" style="display: flex;">
+      <div class="outfit-details-content">
+        <button type="button" id="details-close-btn" class="details-close-btn">×</button>
+        <div class="details-category">
+          <span>${categoryTitle}</span>
+        </div>
+        ${imageHtml}
+        <div class="details-name">${itemName}</div>
+        <button type="button" id="details-favorite-btn" class="details-favorite-btn" aria-label="Favorite item">
+          ${isItemFavorite(item) ? "❤" : "♡"}
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+  const modal = document.getElementById("outfit-details-modal");
+  const closeBtn = document.getElementById("details-close-btn");
+  const favoriteBtn = document.getElementById("details-favorite-btn");
+
+  const closeModal = () => {
+    modal.remove();
+  };
+
+  closeBtn.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  favoriteBtn.addEventListener("click", () => {
+    const updatedItem = setItemFavorite(outfitItems[index].item, !isItemFavorite(outfitItems[index].item));
+    outfitItems[index].item = updatedItem;
+    
+    // Also update in decks and save
+    const deck = entry.deck;
+    const deckItems = decks[deck];
+    if (deckItems) {
+      // Find the item in the deck and update it
+      for (let i = 0; i < deckItems.length; i++) {
+        if (getItemLabel(deckItems[i]) === getItemLabel(entry.item)) {
+          decks[deck][i] = updatedItem;
+          break;
+        }
+      }
+    }
+    
+    saveDecks();
+    closeModal();
+  });
 }
 
 function showBlankPage(message) {
