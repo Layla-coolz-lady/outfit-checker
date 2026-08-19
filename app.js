@@ -755,7 +755,7 @@ function bindMainPageEvents() {
   if (menuOutfit) {
     menuOutfit.addEventListener("click", () => {
       closeSidebar();
-      showOutfitMakerPage();
+      showBlankPage("Outfit Maker");
     });
   }
 
@@ -970,355 +970,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-let outfitItems = [];
-let draggedOutfitItemIndex = null;
-let dragOffsetX = 0;
-let dragOffsetY = 0;
-let isDraggingOutfitItem = false;
-
-function showOutfitMakerPage() {
-  document.body.innerHTML = `
-    <div class="top-buttons">
-      <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
-      <button type="button" id="page-back-button" class="page-switch" aria-label="Back">←</button>
-      <button type="button" id="add-outfit-button" class="page-switch" aria-label="Add item">+</button>
-    </div>
-    <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
-    <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
-      <button type="button" id="sidebar-close" class="sidebar-close" aria-label="Close menu">×</button>
-      <nav class="sidebar-nav" aria-label="Page options">
-        <button type="button" id="menu-closet" class="sidebar-item">The Closet</button>
-        <button type="button" id="menu-favorites" class="sidebar-item">Favorites</button>
-        <button type="button" id="menu-gallery" class="sidebar-item">The Image Gallery</button>
-      </nav>
-    </aside>
-    <main class="outfit-maker-page">
-      <h2>Outfit Maker</h2>
-      <div id="outfit-display" class="outfit-display"></div>
-    </main>
-  `;
-
-  const menuButton = document.getElementById("menu-button");
-  const pageBackButton = document.getElementById("page-back-button");
-  const addOutfitButton = document.getElementById("add-outfit-button");
-  const sidebar = document.getElementById("sidebar");
-  const sidebarBackdrop = document.getElementById("sidebar-backdrop");
-  const sidebarClose = document.getElementById("sidebar-close");
-  const menuCloset = document.getElementById("menu-closet");
-  const menuFavorites = document.getElementById("menu-favorites");
-  const menuGallery = document.getElementById("menu-gallery");
-
-  const openSidebar = () => {
-    sidebar.classList.remove("hidden");
-    sidebarBackdrop.classList.remove("hidden");
-    sidebar.setAttribute("aria-hidden", "false");
-  };
-
-  const closeSidebar = () => {
-    sidebar.classList.add("hidden");
-    sidebarBackdrop.classList.add("hidden");
-    sidebar.setAttribute("aria-hidden", "true");
-  };
-
-  if (menuButton) {
-    menuButton.addEventListener("click", openSidebar);
-  }
-
-  if (sidebarClose) {
-    sidebarClose.addEventListener("click", closeSidebar);
-  }
-
-  if (sidebarBackdrop) {
-    sidebarBackdrop.addEventListener("click", closeSidebar);
-  }
-
-  if (menuCloset) {
-    menuCloset.addEventListener("click", () => {
-      showMainPage();
-    });
-  }
-
-  if (menuFavorites) {
-    menuFavorites.addEventListener("click", () => {
-      closeSidebar();
-      showFavoritesPage();
-    });
-  }
-
-  if (menuGallery) {
-    menuGallery.addEventListener("click", () => {
-      closeSidebar();
-      showImagesPage();
-    });
-  }
-
-  if (pageBackButton) {
-    pageBackButton.addEventListener("click", () => {
-      showMainPage();
-    });
-  }
-
-  if (addOutfitButton) {
-    addOutfitButton.addEventListener("click", () => {
-      showCategorySelectionDialog();
-    });
-  }
-
-  renderOutfitDisplay();
-}
-
-function showCategorySelectionDialog() {
-  const categoryOptions = deckNames.map(name => `<option value="${name}">${name.charAt(0).toUpperCase() + name.slice(1)}</option>`).join("");
-  
-  const modalHtml = `
-    <div id="category-select-modal" class="modal" style="display: flex;">
-      <div class="modal-content">
-        <h3>Select Category</h3>
-        <div style="margin: 1rem 0;">
-          <label for="outfit-category-select">Category:</label>
-          <select id="outfit-category-select" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem;">
-            ${categoryOptions}
-          </select>
-        </div>
-        <div class="modal-actions">
-          <button type="button" id="category-add-confirm">Add</button>
-          <button type="button" id="category-add-cancel">Cancel</button>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  document.body.insertAdjacentHTML("beforeend", modalHtml);
-  
-  const modal = document.getElementById("category-select-modal");
-  const categorySelect = document.getElementById("outfit-category-select");
-  const confirmBtn = document.getElementById("category-add-confirm");
-  const cancelBtn = document.getElementById("category-add-cancel");
-  
-  const closeModal = () => {
-    modal.remove();
-  };
-  
-  confirmBtn.addEventListener("click", () => {
-    const selectedDeck = categorySelect.value;
-    if (selectedDeck && decks[selectedDeck] && decks[selectedDeck].length > 0) {
-      const firstItem = decks[selectedDeck][0];
-      // Initialize position with some offset based on number of items
-      const x = 20 + (outfitItems.length * 30);
-      const y = 80 + (outfitItems.length * 30);
-      outfitItems.push({ item: firstItem, deck: selectedDeck, x, y });
-      closeModal();
-      renderOutfitDisplay();
-    }
-  });
-  
-  cancelBtn.addEventListener("click", closeModal);
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) closeModal();
-  });
-}
-
-function renderOutfitDisplay() {
-  const outfitDisplay = document.getElementById("outfit-display");
-  if (!outfitDisplay) {
-    return;
-  }
-
-  if (outfitItems.length === 0) {
-    outfitDisplay.innerHTML = "<p>No items added yet. Click + to add items from your closet.</p>";
-    return;
-  }
-
-  const itemsHtml = outfitItems.map((entry, index) => {
-    const item = entry.item;
-    let content = "";
-
-    if (isImageEntry(item)) {
-      content = `<img src="${item.src}" alt="${item.name || 'item'}" />
-                 ${item.name ? `<span class="item-label">${item.name}</span>` : ""}`;
-    } else if (isImageUrl(item) || isDataUrl(item)) {
-      content = `<img src="${item}" alt="item" />`;
-    } else {
-      const label = getItemLabel(item);
-      content = `<span class="item-label">${label}</span>`;
-    }
-
-    const x = entry.x || 0;
-    const y = entry.y || 0;
-
-    return `
-      <div class="outfit-item" data-index="${index}" style="left: ${x}px; top: ${y}px;">
-        ${content}
-        <button class="remove-outfit-item" data-index="${index}">×</button>
-      </div>
-    `;
-  }).join("");
-
-  outfitDisplay.innerHTML = itemsHtml;
-
-  // Add event listeners for dragging
-  document.querySelectorAll(".outfit-item").forEach((item) => {
-    item.addEventListener("mousedown", handleOutfitItemMouseDown);
-  });
-
-  document.querySelectorAll(".remove-outfit-item").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const index = Number(e.target.dataset.index);
-      outfitItems.splice(index, 1);
-      renderOutfitDisplay();
-    });
-  });
-}
-
-function handleOutfitItemMouseDown(e) {
-  // Don't drag if clicking the remove button
-  if (e.target.closest(".remove-outfit-item")) {
-    return;
-  }
-
-  const item = e.currentTarget;
-  const index = Number(item.dataset.index);
-  const rect = item.getBoundingClientRect();
-  const display = document.getElementById("outfit-display");
-  const displayRect = display.getBoundingClientRect();
-
-  draggedOutfitItemIndex = index;
-  isDraggingOutfitItem = false;
-  dragOffsetX = e.clientX - rect.left;
-  dragOffsetY = e.clientY - rect.top;
-
-  const initialX = e.clientX;
-  const initialY = e.clientY;
-  const dragThreshold = 5; // pixels
-
-  const handleMouseMove = (moveEvent) => {
-    if (draggedOutfitItemIndex === null) return;
-
-    // Check if moved enough to be considered a drag
-    const distance = Math.sqrt(
-      Math.pow(moveEvent.clientX - initialX, 2) + 
-      Math.pow(moveEvent.clientY - initialY, 2)
-    );
-
-    if (distance > dragThreshold) {
-      isDraggingOutfitItem = true;
-    }
-
-    if (!isDraggingOutfitItem) return;
-
-    const newX = moveEvent.clientX - displayRect.left - dragOffsetX;
-    const newY = moveEvent.clientY - displayRect.top - dragOffsetY;
-
-    // Clamp to container bounds - use fixed item dimensions for bounds checking
-    const itemMinWidth = 140;
-    const itemMinHeight = 160;
-    const maxX = Math.max(0, displayRect.width - itemMinWidth);
-    const maxY = Math.max(0, displayRect.height - itemMinHeight);
-    
-    const clampedX = Math.max(0, Math.min(newX, maxX));
-    const clampedY = Math.max(0, Math.min(newY, maxY));
-
-    outfitItems[draggedOutfitItemIndex].x = clampedX;
-    outfitItems[draggedOutfitItemIndex].y = clampedY;
-
-    item.style.left = clampedX + "px";
-    item.style.top = clampedY + "px";
-  };
-
-  const handleMouseUp = () => {
-    const index = draggedOutfitItemIndex;
-    draggedOutfitItemIndex = null;
-    document.removeEventListener("mousemove", handleMouseMove);
-    document.removeEventListener("mouseup", handleMouseUp);
-
-    // If not dragged, show details popup
-    if (!isDraggingOutfitItem && index !== null) {
-      showOutfitItemDetails(index);
-    }
-
-    isDraggingOutfitItem = false;
-  };
-
-  document.addEventListener("mousemove", handleMouseMove);
-  document.addEventListener("mouseup", handleMouseUp);
-}
-
-function showOutfitItemDetails(index) {
-  const entry = outfitItems[index];
-  if (!entry) return;
-
-  const item = entry.item;
-  const deckName = entry.deck;
-
-  let imageHtml = "";
-  let itemName = "";
-
-  if (isImageEntry(item)) {
-    imageHtml = `<img src="${item.src}" alt="${item.name || 'item'}" class="details-image" />`;
-    itemName = item.name || "Unnamed Item";
-  } else if (isImageUrl(item) || isDataUrl(item)) {
-    imageHtml = `<img src="${item}" alt="item" class="details-image" />`;
-    itemName = "Image Item";
-  } else {
-    itemName = getItemLabel(item) || "Unnamed Item";
-  }
-
-  const categoryTitle = deckName.charAt(0).toUpperCase() + deckName.slice(1);
-
-  const modalHtml = `
-    <div id="outfit-details-modal" class="modal outfit-details-modal" style="display: flex;">
-      <div class="outfit-details-content">
-        <button type="button" id="details-close-btn" class="details-close-btn">×</button>
-        <div class="details-category">
-          <span>${categoryTitle}</span>
-        </div>
-        ${imageHtml}
-        <div class="details-name">${itemName}</div>
-        <button type="button" id="details-favorite-btn" class="details-favorite-btn" aria-label="Favorite item">
-          ${isItemFavorite(item) ? "❤" : "♡"}
-        </button>
-      </div>
-    </div>
-  `;
-
-  document.body.insertAdjacentHTML("beforeend", modalHtml);
-
-  const modal = document.getElementById("outfit-details-modal");
-  const closeBtn = document.getElementById("details-close-btn");
-  const favoriteBtn = document.getElementById("details-favorite-btn");
-
-  const closeModal = () => {
-    modal.remove();
-  };
-
-  closeBtn.addEventListener("click", closeModal);
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) closeModal();
-  });
-
-  favoriteBtn.addEventListener("click", () => {
-    const updatedItem = setItemFavorite(outfitItems[index].item, !isItemFavorite(outfitItems[index].item));
-    outfitItems[index].item = updatedItem;
-    
-    // Also update in decks and save
-    const deck = entry.deck;
-    const deckItems = decks[deck];
-    if (deckItems) {
-      // Find the item in the deck and update it
-      for (let i = 0; i < deckItems.length; i++) {
-        if (getItemLabel(deckItems[i]) === getItemLabel(entry.item)) {
-          decks[deck][i] = updatedItem;
-          break;
-        }
-      }
-    }
-    
-    saveDecks();
-    closeModal();
-  });
-}
-
 function showBlankPage(message) {
   document.body.innerHTML = `
     <div class="top-buttons">
@@ -1403,10 +1054,6 @@ function showBlankPage(message) {
 
 function showImagesPage() {
   const gallery = loadGallery();
-  const pendingTarget = loadPendingImageTarget();
-  const isChoosingMode = Boolean(pendingTarget && pendingTarget.deck && Number.isInteger(pendingTarget.index));
-  const pageTitle = isChoosingMode ? "Choosing image..." : "The Image Gallery";
-
   document.body.innerHTML = `
     <div class="top-buttons">
       <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
@@ -1422,17 +1069,15 @@ function showImagesPage() {
       </nav>
     </aside>
     <div class="gallery-page">
-      <h2>${pageTitle}</h2>
-      ${!isChoosingMode ? `
-        <form id="gallery-form">
-          <input id="gallery-url" type="text" placeholder="Paste image URL" />
-          <button type="submit">Add image</button>
-        </form>
-        <div style="text-align: center; margin: 1rem 0;">
-          <label for="gallery-file-input" style="display: block; margin-bottom: 0.5rem;">Or upload from device:</label>
-          <input type="file" id="gallery-file-input" accept="image/*" multiple style="display: block; margin: 0 auto;" />
-        </div>
-      ` : ""}
+      <h2>The Image Gallery</h2>
+      <form id="gallery-form">
+        <input id="gallery-url" type="text" placeholder="Paste image URL" />
+        <button type="submit">Add image</button>
+      </form>
+      <div style="text-align: center; margin: 1rem 0;">
+        <label for="gallery-file-input" style="display: block; margin-bottom: 0.5rem;">Or upload from device:</label>
+        <input type="file" id="gallery-file-input" accept="image/*" multiple style="display: block; margin: 0 auto;" />
+      </div>
       <div class="gallery-list">
         ${gallery.length ? gallery.map((src) => `
           <div class="gallery-item">
@@ -1493,7 +1138,7 @@ function showImagesPage() {
   if (menuOutfit) {
     menuOutfit.addEventListener("click", () => {
       closeSidebar();
-      showOutfitMakerPage();
+      showBlankPage("Outfit Maker");
     });
   }
 
@@ -1503,60 +1148,45 @@ function showImagesPage() {
     });
   }
 
-  if (!isChoosingMode) {
-    document.getElementById("gallery-form").addEventListener("submit", (event) => {
-      event.preventDefault();
-      const input = document.getElementById("gallery-url");
-      const value = input.value.trim();
-      if (!value) {
-        return;
-      }
-
-      saveGallery([value]);
-      showImagesPage();
-    });
-
-    const fileInput = document.getElementById("gallery-file-input");
-    if (fileInput) {
-      fileInput.addEventListener("change", (event) => {
-        const files = Array.from(event.target.files);
-        if (files.length === 0) return;
-
-        const dataUrls = [];
-        let loaded = 0;
-
-        files.forEach((file) => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            dataUrls.push(e.target.result);
-            loaded++;
-            if (loaded === files.length) {
-              saveGallery(dataUrls);
-              showImagesPage();
-            }
-          };
-          reader.readAsDataURL(file);
-        });
-      });
+  document.getElementById("gallery-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = document.getElementById("gallery-url");
+    const value = input.value.trim();
+    if (!value) {
+      return;
     }
+
+    saveGallery([value]);
+    showImagesPage();
+  });
+
+  const fileInput = document.getElementById("gallery-file-input");
+  if (fileInput) {
+    fileInput.addEventListener("change", (event) => {
+      const files = Array.from(event.target.files);
+      if (files.length === 0) return;
+
+      const dataUrls = [];
+      let loaded = 0;
+
+      files.forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          dataUrls.push(e.target.result);
+          loaded++;
+          if (loaded === files.length) {
+            saveGallery(dataUrls);
+            showImagesPage();
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    });
   }
 
   document.querySelectorAll(".gallery-use").forEach((button) => {
     button.addEventListener("click", () => {
       const imageSrc = button.dataset.src;
-
-      // If a pending image target exists (user clicked an "add photo" button
-      // in edit mode), insert the chosen image directly at that deck/index
-      // and return to the main page.
-      const pendingTarget = loadPendingImageTarget();
-      if (pendingTarget && pendingTarget.deck && Number.isInteger(pendingTarget.index) && decks[pendingTarget.deck]) {
-        decks[pendingTarget.deck][pendingTarget.index] = { src: imageSrc, name: "", favorite: false };
-        saveDecks();
-        clearPendingImageTarget();
-        showMainPage();
-        return;
-      }
-
       ensureGalleryImage(imageSrc);
       
       // Show modal to choose category and name
@@ -1599,14 +1229,26 @@ function showImagesPage() {
       confirmBtn.addEventListener("click", () => {
         const selectedDeck = categorySelect.value;
         const itemName = nameInput.value.trim();
-        
-        if (selectedDeck && decks[selectedDeck]) {
-          const imageItem = { src: imageSrc, name: itemName, favorite: false };
+
+        // If there is a pending image target (user clicked + on a specific item), replace that item
+        const pendingTarget = loadPendingImageTarget();
+
+        const imageItem = { src: imageSrc, name: itemName, favorite: false };
+
+        if (pendingTarget && pendingTarget.deck && Number.isInteger(pendingTarget.index) && decks[pendingTarget.deck]) {
+          // Ensure index is within bounds
+          const idx = Math.max(0, Math.min(pendingTarget.index, decks[pendingTarget.deck].length - 1));
+          decks[pendingTarget.deck][idx] = imageItem;
+          clearPendingImageTarget();
+        } else if (selectedDeck && decks[selectedDeck]) {
           decks[selectedDeck].push(imageItem);
-          saveDecks();
-          closeModal();
-          showImagesPage();
         }
+
+        saveDecks();
+        closeModal();
+        // Return to the main page so the user sees the newly added item immediately
+        showMainPage();
+        renderDecks();
       });
       
       cancelBtn.addEventListener("click", closeModal);
@@ -1726,7 +1368,7 @@ function showFavoritesPage() {
   if (menuOutfit) {
     menuOutfit.addEventListener("click", () => {
       closeSidebar();
-      showOutfitMakerPage();
+      showBlankPage("Outfit Maker");
     });
   }
 
