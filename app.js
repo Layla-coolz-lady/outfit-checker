@@ -8,6 +8,7 @@ const IMAGE_STORE_NAME = "images";
 const TAGS_KEY = "clothing-item-tags";
 const OUTFIT_BOARD_KEY = "clothing-outfit-board";
 const FAVORITE_OUTFITS_KEY = "clothing-favorite-outfits";
+const CLOSET_VIEW_KEY = "clothing-view-mode";
 let deckNames = ["shirts", "pants", "shoes"];
 let menuButton = document.getElementById("menu-button");
 let sidebarBackdrop = document.getElementById("sidebar-backdrop");
@@ -79,6 +80,17 @@ async function getStoredImage(imageId) {
   });
 }
 
+async function deleteStoredImage(imageId) {
+  if (!imageId) return;
+  const database = await openImageDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(IMAGE_STORE_NAME, "readwrite");
+    transaction.objectStore(IMAGE_STORE_NAME).delete(imageId);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
 async function getImageSource(item) {
   if (typeof item === "string") {
     return item;
@@ -90,6 +102,22 @@ async function getImageSource(item) {
     return getStoredImage(item.imageId);
   }
   return "";
+}
+
+function imageEntriesMatch(first, second) {
+  if (!first || !second) return false;
+  return (first.imageId && first.imageId === second.imageId) || (first.src && first.src === second.src);
+}
+
+function getGalleryImageLinks(galleryImage) {
+  const links = [];
+  deckNames.forEach((deckName) => {
+    decks[deckName].forEach((item, index) => {
+      if (isImageEntry(item) && imageEntriesMatch(item, galleryImage)) links.push({ deckName, index, slot: "primary", name: getItemLabel(item) || "Unnamed item" });
+      if (isImageEntry(item) && item.secondImage && imageEntriesMatch(item.secondImage, galleryImage)) links.push({ deckName, index, slot: "secondary", name: getItemLabel(item) || "Unnamed item" });
+    });
+  });
+  return links;
 }
 
 function hydrateStoredImage(image, item) {
@@ -216,6 +244,42 @@ function itemMatchesSearch(item, searchQuery, searchType = "contains") {
   return searchType === "starts-with" ? label.startsWith(query) : label.includes(query);
 }
 
+function itemMatchesTags(item, selectedTags) {
+  return [...selectedTags].every((tag) => (item?.tags || []).includes(tag));
+}
+
+function bindTagFilter(buttonId, panelId, selectedTags, onChange) {
+  const button = document.getElementById(buttonId);
+  const panel = document.getElementById(panelId);
+  if (!button || !panel) return;
+  const render = () => {
+    panel.replaceChildren();
+    if (!closetTags.length) {
+      panel.textContent = "Create tags from the Tags button first.";
+      return;
+    }
+    closetTags.forEach((tag) => {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = selectedTags.has(tag);
+      checkbox.addEventListener("change", () => {
+        checkbox.checked ? selectedTags.add(tag) : selectedTags.delete(tag);
+        button.textContent = selectedTags.size ? `Filter (${selectedTags.size})` : "Filter";
+        onChange();
+      });
+      label.append(checkbox, document.createTextNode(tag));
+      panel.appendChild(label);
+    });
+  };
+  button.textContent = selectedTags.size ? `Filter (${selectedTags.size})` : "Filter";
+  button.addEventListener("click", () => {
+    panel.classList.toggle("hidden");
+    render();
+  });
+  render();
+}
+
 let decks = loadDecks();
 let imageViewer = document.getElementById("image-viewer");
 let viewerImage = document.getElementById("viewer-image");
@@ -236,6 +300,9 @@ let favoritesSearchType = "contains";
 let closetTags = loadTags();
 let outfitBoardItems = loadOutfitBoard();
 let favoriteOutfits = loadFavoriteOutfits();
+let closetViewMode = loadClosetViewMode();
+let closetTagFilters = new Set();
+let favoritesTagFilters = new Set();
 const deleteConfirmation = document.getElementById("delete-confirmation");
 const confirmDeleteButton = document.getElementById("confirm-delete-button");
 const cancelDeleteButton = document.getElementById("cancel-delete-button");
@@ -249,6 +316,7 @@ function setEditMode(isActive) {
   const dots = document.getElementById("edit-dots");
   const shell = document.querySelector(".app-shell");
   const menuBtn = document.getElementById("menu-button");
+  const viewToggleBtn = document.getElementById("view-toggle-button");
 
   if (editBtn) {
     editBtn.textContent = isActive ? "Finish" : "Edit";
@@ -269,6 +337,10 @@ function setEditMode(isActive) {
 
   if (addCatBtn) {
     addCatBtn.classList.toggle("hidden", !isActive);
+  }
+
+  if (viewToggleBtn) {
+    viewToggleBtn.classList.toggle("hidden", isActive);
   }
 
   if (shell) {
@@ -602,6 +674,51 @@ function replaceGallery(images) {
   }
 }
 
+async function deleteGalleryImage(galleryIndex) {
+  const gallery = loadGallery();
+  const galleryImage = gallery[galleryIndex];
+  if (!galleryImage) return;
+  const normalizedImage = typeof galleryImage === "string" ? { src: galleryImage } : galleryImage;
+  const links = getGalleryImageLinks(normalizedImage);
+  const removeImage = async () => {
+    links.forEach(({ deckName, index, slot }) => {
+      const item = decks[deckName][index];
+      if (!isImageEntry(item)) return;
+      if (slot === "secondary") {
+        const { secondImage, ...updatedItem } = item;
+        decks[deckName][index] = updatedItem;
+      } else if (item.secondImage) {
+        const { secondImage, ...details } = item;
+        decks[deckName][index] = { ...details, ...secondImage };
+      } else {
+        decks[deckName][index] = { text: item.name || "", favorite: item.favorite, description: item.description, tags: item.tags };
+      }
+    });
+    gallery.splice(galleryIndex, 1);
+    replaceGallery(gallery);
+    saveDecks();
+    if (normalizedImage.imageId) await deleteStoredImage(normalizedImage.imageId);
+    showImagesPage();
+  };
+  if (!links.length) {
+    await removeImage();
+    return;
+  }
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  modal.innerHTML = `<div class="modal-content"><h2>Delete image?</h2><p>This image is used by:</p><ul class="gallery-delete-links"></ul><p>Deleting it will remove the image from these items.</p><div class="modal-actions"><button type="button" class="gallery-delete-cancel">Cancel</button><button type="button" class="gallery-delete-confirm danger">Delete image</button></div></div>`;
+  document.body.appendChild(modal);
+  const linkList = modal.querySelector(".gallery-delete-links");
+  links.forEach((link) => {
+    const row = document.createElement("li");
+    row.textContent = `${formatCategoryName(link.deckName)} — ${link.name}${link.slot === "secondary" ? " (second image)" : ""}`;
+    linkList.appendChild(row);
+  });
+  modal.querySelector(".gallery-delete-cancel").addEventListener("click", () => modal.remove());
+  modal.querySelector(".gallery-delete-confirm").addEventListener("click", async () => { modal.remove(); await removeImage(); });
+  modal.addEventListener("click", (event) => { if (event.target === modal) modal.remove(); });
+}
+
 async function moveExistingPhotosToImageStorage() {
   let galleryChanged = false;
   let decksChanged = false;
@@ -684,6 +801,27 @@ function loadFavoriteOutfits() {
 
 function saveFavoriteOutfits() {
   localStorage.setItem(FAVORITE_OUTFITS_KEY, JSON.stringify(favoriteOutfits));
+}
+
+function loadClosetViewMode() {
+  const viewMode = localStorage.getItem(CLOSET_VIEW_KEY);
+  return ["list", "gallery", "condensed"].includes(viewMode) ? viewMode : "list";
+}
+
+function saveClosetViewMode() {
+  localStorage.setItem(CLOSET_VIEW_KEY, closetViewMode);
+}
+
+function getNextViewMode() {
+  return closetViewMode === "list" ? "gallery" : closetViewMode === "gallery" ? "condensed" : "list";
+}
+
+function getViewToggleLabel() {
+  return closetViewMode === "list" ? "☰" : closetViewMode === "gallery" ? "⠿" : "▦";
+}
+
+function getViewModeName() {
+  return closetViewMode === "list" ? "List view" : closetViewMode === "gallery" ? "Gallery view" : "Condensed gallery view";
 }
 
 function applyFavoriteHeartColor(color = loadFavoriteHeartColor()) {
@@ -823,6 +961,9 @@ function renderDecks() {
   const searchQuery = closetSearchQuery.trim();
   let visibleItemCount = 0;
   deckGrid.innerHTML = "";
+  deckGrid.classList.toggle("gallery-view", closetViewMode === "gallery" && !editMode);
+  deckGrid.classList.toggle("condensed-view", closetViewMode === "condensed" && !editMode);
+  deckGrid.classList.toggle("list-view", closetViewMode === "list" || editMode);
 
   if (searchInput) {
     searchInput.value = closetSearchQuery;
@@ -832,11 +973,11 @@ function renderDecks() {
   }
 
   deckNames.forEach((deckName) => {
-    const matchingItems = searchQuery
-      ? decks[deckName].map((item, index) => ({ item, index })).filter(({ item }) => itemMatchesSearch(item, searchQuery, closetSearchType))
-      : decks[deckName].map((item, index) => ({ item, index }));
+    const matchingItems = decks[deckName]
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => (!searchQuery || itemMatchesSearch(item, searchQuery, closetSearchType)) && itemMatchesTags(item, closetTagFilters));
 
-    if (searchQuery && matchingItems.length === 0) {
+    if ((searchQuery || closetTagFilters.size) && matchingItems.length === 0) {
       return;
     }
 
@@ -1099,6 +1240,7 @@ function bindMainPageEvents() {
   const editBtn = document.getElementById("edit-button");
   const addCategoryBtn = document.getElementById("add-category-button");
   const tagsButton = document.getElementById("tags-button");
+  const viewToggleButton = document.getElementById("view-toggle-button");
   const confirmDeleteButton = document.getElementById("confirm-delete-button");
   const cancelDeleteButton = document.getElementById("cancel-delete-button");
   const deleteConfirmationElement = document.getElementById("delete-confirmation");
@@ -1161,6 +1303,23 @@ function bindMainPageEvents() {
   if (tagsButton) {
     tagsButton.addEventListener("click", openTagManager);
   }
+
+  if (viewToggleButton) {
+    viewToggleButton.textContent = getViewToggleLabel();
+    viewToggleButton.setAttribute("aria-label", `${getViewModeName()}. Change view`);
+    viewToggleButton.addEventListener("click", () => {
+      closetViewMode = getNextViewMode();
+      saveClosetViewMode();
+      renderDecks();
+      const refreshedButton = document.getElementById("view-toggle-button");
+      if (refreshedButton) {
+        refreshedButton.textContent = getViewToggleLabel();
+        refreshedButton.setAttribute("aria-label", `${getViewModeName()}. Change view`);
+      }
+    });
+  }
+
+  bindTagFilter("closet-tag-filter-button", "closet-tag-filter-panel", closetTagFilters, renderDecks);
 
   if (saveCategoryButton) {
     saveCategoryButton.addEventListener("click", saveNewCategory);
@@ -1353,10 +1512,15 @@ function saveNewCategory() {
 function showMainPage() {
   document.body.innerHTML = `
     <div class="top-buttons">
-      <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
-      <button type="button" id="edit-button" class="page-switch edit-button">Edit</button>
-      <button type="button" id="tags-button" class="page-switch tags-button">Tags</button>
-      <button type="button" id="add-category-button" class="page-switch add-category-button hidden" aria-label="Add category">+</button>
+      <div class="top-buttons-left">
+        <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
+        <button type="button" id="edit-button" class="page-switch edit-button">Edit</button>
+      </div>
+      <div class="top-buttons-right">
+        <button type="button" id="tags-button" class="page-switch tags-button">Tags</button>
+        <button type="button" id="view-toggle-button" class="page-switch view-toggle-button" aria-label="Switch to gallery view">Gallery</button>
+        <button type="button" id="add-category-button" class="page-switch add-category-button hidden" aria-label="Add category">+</button>
+      </div>
     </div>
     <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
     <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
@@ -1381,6 +1545,8 @@ function showMainPage() {
           <option value="contains">Contains</option>
           <option value="starts-with">Starts with</option>
         </select>
+        <button type="button" id="closet-tag-filter-button" class="search-tag-filter-button">Filter</button>
+        <div id="closet-tag-filter-panel" class="search-tag-filter-panel hidden"></div>
       </div>
       <p id="closet-search-empty" class="search-empty hidden">No items match that search.</p>
       <div class="deck-grid"></div>
@@ -1581,7 +1747,7 @@ async function openItemDetails(deckName, index, context = {}) {
       <button type="button" class="details-nav-btn details-next-btn" aria-label="Next item">›</button>
       <div class="details-display">
         <img class="details-image${alternateSource ? " flippable" : ""}" alt="clothing item" />
-        <div class="details-name-row"><h2 class="details-name"></h2><span class="details-favorite-heart hidden" aria-label="Favorite item">♥</span></div>
+        <div class="details-name-row"><h2 class="details-name"></h2><button type="button" class="details-favorite-heart" aria-label="Favorite item">♡</button></div>
         <div class="details-tags"></div>
         <p class="details-description"></p>
       </div>
@@ -1642,7 +1808,10 @@ async function openItemDetails(deckName, index, context = {}) {
   const refreshDetails = () => {
     const currentItem = decks[deckName]?.[index];
     name.textContent = getItemLabel(currentItem) || "Unnamed item";
-    favoriteHeart.classList.toggle("hidden", !isItemFavorite(currentItem));
+    const favorite = isItemFavorite(currentItem);
+    favoriteHeart.textContent = favorite ? "♥" : "♡";
+    favoriteHeart.classList.toggle("filled", favorite);
+    favoriteHeart.setAttribute("aria-label", favorite ? "Remove from favorites" : "Add to favorites");
     description.textContent = currentItem?.description || "";
     description.classList.toggle("hidden", !currentItem?.description);
     tagsContainer.replaceChildren();
@@ -1717,6 +1886,14 @@ async function openItemDetails(deckName, index, context = {}) {
   });
 
   modal.querySelector(".details-close-btn").addEventListener("click", close);
+  favoriteHeart.addEventListener("click", () => {
+    const currentItem = decks[deckName]?.[index];
+    if (!currentItem) return;
+    decks[deckName][index] = setItemFavorite(currentItem, !isItemFavorite(currentItem));
+    saveDecks();
+    refreshDetails();
+    renderDecks();
+  });
   modal.querySelector(".details-prev-btn").addEventListener("click", () => navigateDetails(-1));
   modal.querySelector(".details-next-btn").addEventListener("click", () => navigateDetails(1));
   modal.addEventListener("click", (event) => {
@@ -1864,7 +2041,6 @@ function showOutfitMaker() {
 
   const display = document.getElementById("outfit-display");
   let activeOutfitDrag = null;
-  let lastOutfitTap = { card: null, time: 0 };
   display.addEventListener("pointermove", (event) => {
     if (!activeOutfitDrag || event.buttons !== 0) return;
     const card = activeOutfitDrag.card;
@@ -1894,6 +2070,9 @@ function showOutfitMaker() {
       card.dataset.index = index;
       const image = document.createElement("img");
       image.alt = boardItem.name || "clothing item";
+      const imageScale = Math.min(2.5, Math.max(0.5, Number(boardItem.scale) || 1));
+      image.style.width = `${100 * imageScale}px`;
+      image.style.height = `${100 * imageScale}px`;
       hydrateStoredImage(image, getOutfitSource(boardItem));
       const remove = document.createElement("button");
       remove.type = "button";
@@ -1906,17 +2085,65 @@ function showOutfitMaker() {
         saveOutfitBoard();
         renderBoard();
       });
-      card.append(image, remove);
+      const resizeControls = document.createElement("div");
+      resizeControls.className = "outfit-resize-controls";
+      const shrinkButton = document.createElement("button");
+      shrinkButton.type = "button";
+      shrinkButton.className = "resize-outfit-item";
+      shrinkButton.textContent = "−";
+      shrinkButton.setAttribute("aria-label", "Make item smaller");
+      const growButton = document.createElement("button");
+      growButton.type = "button";
+      growButton.className = "resize-outfit-item";
+      growButton.textContent = "+";
+      growButton.setAttribute("aria-label", "Make item larger");
+      const resizeItem = (amount) => {
+        const currentScale = Number(outfitBoardItems[index].scale) || 1;
+        outfitBoardItems[index].scale = Math.round(Math.min(2.5, Math.max(0.5, currentScale + amount)) * 10) / 10;
+        saveOutfitBoard();
+        renderBoard();
+      };
+      shrinkButton.addEventListener("click", (event) => { event.stopPropagation(); resizeItem(-0.1); });
+      growButton.addEventListener("click", (event) => { event.stopPropagation(); resizeItem(0.1); });
+      resizeControls.append(shrinkButton, growButton);
+      card.append(image, resizeControls, remove);
       let dragStart = null;
       let wasAlreadyMoving = false;
       let movedDuringTap = false;
+      let touchStart = null;
+      let movedDuringTouch = false;
+
+      const saveCardPosition = () => {
+        outfitBoardItems[index].x = Number.parseFloat(card.style.left) / display.clientWidth * 100;
+        outfitBoardItems[index].y = Number.parseFloat(card.style.top) / display.clientHeight * 100;
+        saveOutfitBoard();
+      };
+
+      const openBoardItemDetails = () => {
+        const reference = findOutfitItemReference(boardItem);
+        if (reference) {
+          openItemDetails(reference.deckName, reference.itemIndex, { outfitBoardIndex: index, renderBoard });
+        }
+      };
+
+      const moveCardTo = (left, top) => {
+        const maxLeft = Math.max(0, display.clientWidth - card.offsetWidth);
+        const maxTop = Math.max(0, display.clientHeight - card.offsetHeight);
+        card.style.left = `${Math.max(0, Math.min(maxLeft, left))}px`;
+        card.style.top = `${Math.max(0, Math.min(maxTop, top))}px`;
+      };
+
       card.addEventListener("pointerdown", (event) => {
         if (event.target.closest("button")) return;
+        if (event.pointerType === "touch") {
+          // A short touch opens details; moving more than a few pixels starts a drag.
+          touchStart = { x: event.clientX, y: event.clientY, left: card.offsetLeft, top: card.offsetTop };
+          movedDuringTouch = false;
+          card.setPointerCapture(event.pointerId);
+          return;
+        }
         if (event.button === 0) {
-          const reference = findOutfitItemReference(boardItem);
-          if (reference) {
-            openItemDetails(reference.deckName, reference.itemIndex, { outfitBoardIndex: index, renderBoard });
-          }
+          openBoardItemDetails();
           return;
         }
         if (event.button !== 2) return;
@@ -1931,35 +2158,40 @@ function showOutfitMaker() {
         card.setPointerCapture(event.pointerId);
       });
       card.addEventListener("pointermove", (event) => {
+        if (event.pointerType === "touch" && touchStart) {
+          const horizontalMove = event.clientX - touchStart.x;
+          const verticalMove = event.clientY - touchStart.y;
+          if (!movedDuringTouch && Math.hypot(horizontalMove, verticalMove) < 8) return;
+          movedDuringTouch = true;
+          event.preventDefault();
+          moveCardTo(touchStart.left + horizontalMove, touchStart.top + verticalMove);
+          return;
+        }
         if (!dragStart || !activeOutfitDrag || activeOutfitDrag.card !== card) return;
         movedDuringTap = true;
-        const maxLeft = Math.max(0, display.clientWidth - card.offsetWidth);
-        const maxTop = Math.max(0, display.clientHeight - card.offsetHeight);
-        const left = Math.max(0, Math.min(maxLeft, dragStart.left + event.clientX - dragStart.x));
-        const top = Math.max(0, Math.min(maxTop, dragStart.top + event.clientY - dragStart.y));
-        card.style.left = `${left}px`;
-        card.style.top = `${top}px`;
+        moveCardTo(dragStart.left + event.clientX - dragStart.x, dragStart.top + event.clientY - dragStart.y);
       });
-      card.addEventListener("pointerup", () => {
+      card.addEventListener("pointerup", (event) => {
+        if (event.pointerType === "touch" && touchStart) {
+          const wasDragged = movedDuringTouch;
+          touchStart = null;
+          movedDuringTouch = false;
+          if (wasDragged) saveCardPosition();
+          else openBoardItemDetails();
+          return;
+        }
         if (!dragStart) return;
         if (movedDuringTap) {
-          outfitBoardItems[index].x = Number.parseFloat(card.style.left) / display.clientWidth * 100;
-          outfitBoardItems[index].y = Number.parseFloat(card.style.top) / display.clientHeight * 100;
-          saveOutfitBoard();
-        } else if (wasAlreadyMoving && lastOutfitTap.card === card && Date.now() - lastOutfitTap.time < 400) {
-          activeOutfitDrag = null;
-          card.classList.remove("outfit-item-moving");
-          lastOutfitTap = { card: null, time: 0 };
-          if (boardItem.deckName !== undefined && Number.isInteger(boardItem.itemIndex)) {
-            openItemDetails(boardItem.deckName, boardItem.itemIndex);
-          }
+          saveCardPosition();
         } else if (wasAlreadyMoving) {
           activeOutfitDrag = null;
           card.classList.remove("outfit-item-moving");
-          lastOutfitTap = { card: null, time: 0 };
-        } else {
-          lastOutfitTap = { card, time: Date.now() };
         }
+        dragStart = null;
+      });
+      card.addEventListener("pointercancel", () => {
+        touchStart = null;
+        movedDuringTouch = false;
         dragStart = null;
       });
       card.addEventListener("contextmenu", (event) => {
@@ -2163,7 +2395,10 @@ function showImagesPage() {
           return `
           <div class="gallery-item">
             <img src="${escapeHtmlAttribute(src)}" data-image-id="${escapeHtmlAttribute(imageId)}" alt="gallery item" />
-            <button class="gallery-use" data-gallery-index="${index}">${choosingForExistingItem ? "Choose" : "Use image"}</button>
+            <div class="gallery-item-actions">
+              <button class="gallery-use" data-gallery-index="${index}">${choosingForExistingItem ? "Choose" : "Use image"}</button>
+              ${choosingForExistingItem ? "" : `<button type="button" class="gallery-delete" data-gallery-index="${index}" aria-label="Delete image">×</button>`}
+            </div>
           </div>
         `;
         }).join("") : "<p>No images yet.</p>"}
@@ -2433,6 +2668,10 @@ function showImagesPage() {
       });
     });
   });
+
+  document.querySelectorAll(".gallery-delete").forEach((button) => {
+    button.addEventListener("click", () => deleteGalleryImage(Number(button.dataset.galleryIndex)));
+  });
 }
 
 function showFavoritesPage() {
@@ -2445,12 +2684,12 @@ function showFavoritesPage() {
     const favorites = decks[deckName]
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => isItemFavorite(item));
-    const matchingFavorites = searchQuery
-      ? favorites.filter(({ item }) => itemMatchesSearch(item, searchQuery, favoritesSearchType))
-      : favorites;
+    const matchingFavorites = favorites.filter(({ item }) =>
+      (!searchQuery || itemMatchesSearch(item, searchQuery, favoritesSearchType)) && itemMatchesTags(item, favoritesTagFilters)
+    );
     const hasFavorites = matchingFavorites.length > 0;
     visibleFavoriteCount += matchingFavorites.length;
-    if (searchQuery && !hasFavorites) {
+    if ((searchQuery || favoritesTagFilters.size) && !hasFavorites) {
       return "";
     }
     const listItems = hasFavorites && !collapsed
@@ -2498,6 +2737,7 @@ function showFavoritesPage() {
     <div class="top-buttons">
       <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
       <button type="button" id="favorites-back-button" class="page-switch" aria-label="Back">←</button>
+      <button type="button" id="favorites-view-toggle-button" class="page-switch view-toggle-button" aria-label="Switch to gallery view">Gallery</button>
     </div>
     <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
     <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
@@ -2508,7 +2748,7 @@ function showFavoritesPage() {
         <button type="button" id="menu-outfit" class="sidebar-item">Outfit Maker</button>
       </nav>
     </aside>
-    <main class="favorites-page">
+    <main class="favorites-page${closetViewMode === "gallery" ? " gallery-view" : closetViewMode === "condensed" ? " condensed-view" : " list-view"}">
       <div class="favorites-title-row">
         <h2>Favorites</h2>
         <button type="button" id="heart-color-button" class="heart-color-button" aria-label="Choose favorite heart color">♥ ♥ ♥</button>
@@ -2521,6 +2761,8 @@ function showFavoritesPage() {
           <option value="contains">Contains</option>
           <option value="starts-with">Starts with</option>
         </select>
+        <button type="button" id="favorites-tag-filter-button" class="search-tag-filter-button">Filter</button>
+        <div id="favorites-tag-filter-panel" class="search-tag-filter-panel hidden"></div>
       </div>
       <p id="favorites-search-empty" class="search-empty${searchQuery && visibleFavoriteCount === 0 ? "" : " hidden"}">No favorite items match that search.</p>
       ${categoriesHtml}
@@ -2571,6 +2813,8 @@ function showFavoritesPage() {
   const menuOutfit = document.getElementById("menu-outfit");
   const favoritesSearch = document.getElementById("favorites-search");
   const favoritesSearchTypeInput = document.getElementById("favorites-search-type");
+  const favoritesTagFilterButton = document.getElementById("favorites-tag-filter-button");
+  const favoritesViewToggleButton = document.getElementById("favorites-view-toggle-button");
   const heartColorButton = document.getElementById("heart-color-button");
   const heartColorModal = document.getElementById("heart-color-modal");
   const heartColorInput = document.getElementById("heart-color-input");
@@ -2589,6 +2833,20 @@ function showFavoritesPage() {
     favoritesSearchTypeInput.value = favoritesSearchType;
     favoritesSearchTypeInput.addEventListener("change", () => {
       favoritesSearchType = favoritesSearchTypeInput.value;
+      showFavoritesPage();
+    });
+  }
+
+  if (favoritesTagFilterButton) {
+    bindTagFilter("favorites-tag-filter-button", "favorites-tag-filter-panel", favoritesTagFilters, showFavoritesPage);
+  }
+
+  if (favoritesViewToggleButton) {
+    favoritesViewToggleButton.textContent = getViewToggleLabel();
+    favoritesViewToggleButton.setAttribute("aria-label", `${getViewModeName()}. Change view`);
+    favoritesViewToggleButton.addEventListener("click", () => {
+      closetViewMode = getNextViewMode();
+      saveClosetViewMode();
       showFavoritesPage();
     });
   }

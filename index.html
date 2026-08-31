@@ -8,10 +8,15 @@
   </head>
   <body>
     <div class="top-buttons">
+      <div class="top-buttons-left">
       <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
       <button type="button" id="edit-button" class="page-switch edit-button">Edit</button>
+      </div>
+      <div class="top-buttons-right">
       <button type="button" id="tags-button" class="page-switch tags-button">Tags</button>
+      <button type="button" id="view-toggle-button" class="page-switch view-toggle-button" aria-label="Switch to gallery view">Gallery</button>
       <button type="button" id="add-category-button" class="page-switch add-category-button hidden" aria-label="Add category">+</button>
+      </div>
     </div>
     <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
     <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
@@ -40,7 +45,7 @@
       </div>
       <p id="closet-search-empty" class="search-empty hidden">No items match that search.</p>
 
-      <div class="deck-grid">
+      <div class="deck-grid list-view">
         <section class="deck" data-deck="shirts">
           <div class="deck-header">
             <h2>Shirts</h2>
