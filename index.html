@@ -10,6 +10,7 @@
     <div class="top-buttons">
       <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
       <button type="button" id="edit-button" class="page-switch edit-button">Edit</button>
+      <button type="button" id="tags-button" class="page-switch tags-button">Tags</button>
       <button type="button" id="add-category-button" class="page-switch add-category-button hidden" aria-label="Add category">+</button>
     </div>
     <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
@@ -27,6 +28,17 @@
     </div>
     <main class="app-shell">
       <h1 class="page-title"><span class="title-text">The Closet</span></h1>
+
+      <div class="search-box">
+        <label class="sr-only" for="closet-search">Search closet items</label>
+        <input id="closet-search" type="search" placeholder="Search your closet" autocomplete="off" />
+        <label class="search-type-label" for="closet-search-type">Match</label>
+        <select id="closet-search-type" aria-label="Search type">
+          <option value="contains">Contains</option>
+          <option value="starts-with">Starts with</option>
+        </select>
+      </div>
+      <p id="closet-search-empty" class="search-empty hidden">No items match that search.</p>
 
       <div class="deck-grid">
         <section class="deck" data-deck="shirts">
@@ -80,6 +92,7 @@
     </main>
 
     <div id="image-viewer" class="image-viewer" aria-hidden="true">
+      <button type="button" class="image-viewer-close" aria-label="Close full-size image">×</button>
       <img id="viewer-image" src="" alt="Full-size clothing item" />
     </div>
 
@@ -90,6 +103,18 @@
         <div class="modal-actions">
           <button type="button" id="confirm-delete-button" class="danger">Yes I’m sure</button>
           <button type="button" id="cancel-delete-button">Nevermind</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="add-category-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="add-category-title">
+      <div class="modal-content">
+        <h2 id="add-category-title">New category</h2>
+        <label for="category-name-input">Category name</label>
+        <input id="category-name-input" class="category-name-input" type="text" maxlength="40" placeholder="For example: Dresses" />
+        <div class="modal-actions">
+          <button type="button" id="cancel-category-button">Cancel</button>
+          <button type="button" id="save-category-button">Add category</button>
         </div>
       </div>
     </div>
