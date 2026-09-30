@@ -5,31 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Closet</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://google.com" async defer></script>
   </head>
-  <head>
-  <script src="https://google.com" async defer></script>
-</head>
-<body>
-
-  <div id="g_id_onload"
-       data-client_id="909116472310-u9uqfr2dmeu4fl167l5fhupibud6g1bt.apps.googleusercontent.com"
-       data-context="signin"
-       data-ux_mode="popup"
-       data-callback="handleCredentialResponse"
-       data-auto_select="false">
-  </div>
-
-  <div class="g_id_signin" data-type="standard" data-size="large"></div>
-
-  <script>
-    function handleCredentialResponse(response) {
-      const token = response.credential;
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const googleUserId = payload.sub;
-      console.log(googleUserId);
-    }
-  </script>
-
+ 
 </body>
 </html>
   <body>
@@ -43,6 +21,15 @@
       <button type="button" id="view-toggle-button" class="page-switch view-toggle-button" aria-label="Switch to gallery view">Gallery</button>
       <button type="button" id="add-category-button" class="page-switch add-category-button hidden" aria-label="Add category">+</button>
       </div>
+        <div id="g_id_onload"
+       data-client_id="HERE"
+       data-context="signin"
+       data-ux_mode="popup"
+       data-callback="handleCredentialResponse"
+       data-auto_select="false">
+  </div>
+
+  <div class="g_id_signin" data-type="standard" data-size="large"></div>
     </div>
     <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
     <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
@@ -149,7 +136,14 @@
         </div>
       </div>
     </div>
-
+  <script>
+    function handleCredentialResponse(response) {
+      const token = response.credential;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const googleUserId = payload.sub;
+      console.log(googleUserId);
+    }
+  </script>
     <script src="app.js"></script>
   </body>
 </html>
