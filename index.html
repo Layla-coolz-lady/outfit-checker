@@ -6,6 +6,32 @@
     <title>The Closet</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
+  <head>
+  <script src="https://google.com" async defer></script>
+</head>
+<body>
+
+  <div id="g_id_onload"
+       data-client_id="909116472310-u9uqfr2dmeu4fl167l5fhupibud6g1bt.apps.googleusercontent.com"
+       data-context="signin"
+       data-ux_mode="popup"
+       data-callback="handleCredentialResponse"
+       data-auto_select="false">
+  </div>
+
+  <div class="g_id_signin" data-type="standard" data-size="large"></div>
+
+  <script>
+    function handleCredentialResponse(response) {
+      const token = response.credential;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const googleUserId = payload.sub;
+      console.log(googleUserId);
+    }
+  </script>
+
+</body>
+</html>
   <body>
     <div class="top-buttons">
       <div class="top-buttons-left">
