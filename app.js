@@ -33,6 +33,17 @@ const FIREBASE_CONFIG = {
   appId: "1:24828460460:web:f98027fced77d0af410e09"
 };
 
+// Detect iOS (iPhone/iPad) to replace platform emoji with colorable SVGs
+function isIos() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || navigator.vendor || window.opera || '';
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1 && /MacIntel/.test(navigator.platform));
+}
+
+function heartSvg() {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;
+}
+
 let collapsedDecks = { shirts: false, pants: false, shoes: false };
 let firebaseApp = null;
 let firebaseAuth = null;
@@ -1511,7 +1522,11 @@ function renderDecks() {
         favoriteButton.dataset.deck = deckName;
         favoriteButton.dataset.index = index;
         favoriteButton.setAttribute("aria-label", isFavorite ? "Unfavorite item" : "Favorite item");
-        favoriteButton.textContent = isFavorite ? "❤" : "♡";
+        if (isIos()) {
+          favoriteButton.innerHTML = isFavorite ? heartSvg() : heartSvg();
+        } else {
+          favoriteButton.textContent = isFavorite ? "❤" : "♡";
+        }
         row.appendChild(favoriteButton);
       }
 
@@ -2135,8 +2150,13 @@ async function openItemDetails(deckName, index, context = {}) {
     const currentItem = decks[deckName]?.[index];
     name.textContent = getItemLabel(currentItem) || "Unnamed item";
     const favorite = isItemFavorite(currentItem);
-    favoriteHeart.textContent = favorite ? "♥" : "♡";
-    favoriteHeart.classList.toggle("filled", favorite);
+    if (isIos()) {
+      favoriteHeart.innerHTML = heartSvg();
+      favoriteHeart.classList.toggle("filled", favorite);
+    } else {
+      favoriteHeart.textContent = favorite ? "♥" : "♡";
+      favoriteHeart.classList.toggle("filled", favorite);
+    }
     favoriteHeart.setAttribute("aria-label", favorite ? "Remove from favorites" : "Add to favorites");
     description.textContent = currentItem?.description || "";
     description.classList.toggle("hidden", !currentItem?.description);

@@ -7,9 +7,6 @@
     <link rel="stylesheet" href="styles.css" />
     <script src="https://google.com" async defer></script>
   </head>
- 
-</body>
-</html>
   <body>
     <div class="top-buttons">
       <div class="top-buttons-left">
@@ -144,6 +141,179 @@
       const googleUserId = payload.sub;
       console.log(googleUserId);
     }
+  </script>
+
+  <script>
+    // Forward wheel events to hovered category lists on non-touch devices
+    (function () {
+      if ('ontouchstart' in window) return; // skip touch devices
+
+      function onWheel(e) {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        if (!el) return;
+        const deck = el.closest('.deck');
+        if (!deck) return;
+        const list = deck.querySelector('ul');
+        if (!list) return;
+        if (list.scrollHeight <= list.clientHeight) return; // nothing to scroll
+
+        const prev = list.scrollTop;
+        list.scrollTop += e.deltaY;
+        if (list.scrollTop !== prev) e.preventDefault();
+      }
+
+      document.addEventListener('wheel', onWheel, { passive: false });
+    })();
+  </script>
+
+  <script>
+    // Render visual scrollbars for each deck and keep them in sync.
+    // This version re-creates scrollbars if the app updates DOM after init.
+    (function () {
+      if (typeof window === 'undefined') return;
+
+      function createScrollbar(deck) {
+        const list = deck.querySelector('ul');
+        if (!list) return;
+
+        // avoid duplicate
+        if (deck.querySelector('.deck-scrollbar')) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'deck-scrollbar';
+        wrapper.innerHTML = '<div class="deck-scrollbar-track"></div><div class="deck-scrollbar-thumb"></div>';
+        // Position the scrollbar to match the list area (align top/bottom to list)
+        const listRect = list.getBoundingClientRect();
+        const deckRect = deck.getBoundingClientRect();
+        const offsetTop = list.offsetTop; // relative to deck
+        wrapper.style.top = offsetTop + 'px';
+        wrapper.style.bottom = (deck.clientHeight - (offsetTop + list.clientHeight)) + 'px';
+
+        deck.appendChild(wrapper);
+
+        const thumb = wrapper.querySelector('.deck-scrollbar-thumb');
+
+        function update() {
+          // Defensive: if list or wrapper removed, stop
+          if (!list || !wrapper || !thumb) return;
+          // Show scrollbar only when list can scroll and deck is not collapsed
+          const canScroll = list.scrollHeight > list.clientHeight && !deck.classList.contains('collapsed');
+          wrapper.style.display = canScroll ? 'block' : 'none';
+
+          if (!canScroll) return;
+
+          const visibleRatio = list.clientHeight / Math.max(1, list.scrollHeight);
+          const thumbHeight = Math.max(visibleRatio * wrapper.clientHeight, 12);
+          const scrollRatio = list.scrollTop / Math.max(1, list.scrollHeight - list.clientHeight);
+          const top = scrollRatio * Math.max(0, wrapper.clientHeight - thumbHeight);
+          thumb.style.height = thumbHeight + 'px';
+          thumb.style.transform = 'translateY(' + top + 'px)';
+        }
+
+        // initial
+        update();
+
+        list.addEventListener('scroll', update, { passive: true });
+        window.addEventListener('resize', () => {
+          // reposition wrapper to match the list area when layout changes
+          const offsetTop = list.offsetTop;
+          wrapper.style.top = offsetTop + 'px';
+          wrapper.style.bottom = (deck.clientHeight - (offsetTop + list.clientHeight)) + 'px';
+          update();
+        });
+
+        // update when content changes
+        const ro = new MutationObserver(update);
+        ro.observe(list, { childList: true, subtree: true });
+
+        // watch for collapsed state changes
+        const deckObserver = new MutationObserver(update);
+        deckObserver.observe(deck, { attributes: true, attributeFilter: ['class'] });
+
+        // Make the thumb draggable (mouse + touch)
+        let dragging = false;
+        let startY = 0;
+        let startScroll = 0;
+
+        function onPointerDown(e) {
+          const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+          dragging = true;
+          startY = clientY;
+          startScroll = list.scrollTop;
+          thumb.classList.add('dragging');
+          document.addEventListener('mousemove', onPointerMove);
+          document.addEventListener('mouseup', onPointerUp);
+          document.addEventListener('touchmove', onPointerMove, { passive: false });
+          document.addEventListener('touchend', onPointerUp);
+          e.preventDefault();
+        }
+
+        function onPointerMove(e) {
+          if (!dragging) return;
+          const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+          const delta = clientY - startY;
+          const trackHeight = wrapper.clientHeight - thumb.clientHeight;
+          const scrollable = Math.max(1, list.scrollHeight - list.clientHeight);
+          const scrollDelta = (delta / Math.max(1, trackHeight)) * scrollable;
+          list.scrollTop = Math.min(Math.max(0, startScroll + scrollDelta), scrollable);
+          e.preventDefault();
+        }
+
+        function onPointerUp() {
+          dragging = false;
+          thumb.classList.remove('dragging');
+          document.removeEventListener('mousemove', onPointerMove);
+          document.removeEventListener('mouseup', onPointerUp);
+          document.removeEventListener('touchmove', onPointerMove);
+          document.removeEventListener('touchend', onPointerUp);
+        }
+
+        thumb.addEventListener('mousedown', onPointerDown);
+        thumb.addEventListener('touchstart', onPointerDown, { passive: false });
+
+        // Click on track to jump
+        const track = wrapper.querySelector('.deck-scrollbar-track');
+        track.addEventListener('click', function (e) {
+          const rect = wrapper.getBoundingClientRect();
+          const clickY = e.clientY - rect.top;
+          const thumbHalf = Math.max(6, thumb.clientHeight / 2);
+          const targetTop = Math.min(Math.max(0, clickY - thumbHalf), wrapper.clientHeight - thumb.clientHeight);
+          const ratio = targetTop / Math.max(1, wrapper.clientHeight - thumb.clientHeight);
+          list.scrollTop = ratio * Math.max(1, list.scrollHeight - list.clientHeight);
+        });
+      }
+
+      function ensureScrollbars() {
+        document.querySelectorAll('.deck').forEach((deck) => {
+          // If deck has no list yet, still try to create after a short delay
+          createScrollbar(deck);
+        });
+      }
+
+      // Observe the document for DOM changes that may remove/recreate decks
+      const bodyObserver = new MutationObserver(() => {
+        ensureScrollbars();
+      });
+      bodyObserver.observe(document.body, { childList: true, subtree: true });
+
+      document.addEventListener('DOMContentLoaded', () => {
+        ensureScrollbars();
+        // run a couple more times in case app.js populates content asynchronously
+        setTimeout(ensureScrollbars, 150);
+        setTimeout(ensureScrollbars, 450);
+      });
+
+      window.addEventListener('load', () => {
+        ensureScrollbars();
+      });
+
+      // Short retry loop to survive frameworks that replace DOM during startup
+      let attempts = 0;
+      const retry = setInterval(() => {
+        ensureScrollbars();
+        if (++attempts > 12) clearInterval(retry);
+      }, 250);
+    })();
   </script>
 
     <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>

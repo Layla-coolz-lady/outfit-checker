@@ -662,6 +662,120 @@ body {
   padding: 1rem;
 }
 
+/* Make long category lists scrollable while keeping headers/forms visible */
+.deck {
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh; /* keeps deck from growing too tall */
+}
+
+.deck ul {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* smooth scrolling on iOS */
+  margin: 0 0 0.75rem 0;
+  flex: 1 1 auto; /* allow the list to grow and scroll inside the deck */
+  min-height: 0; /* allow flex child to shrink properly so overflow works */
+}
+
+/* Ensure the forms and headers stay visible */
+.deck .deck-header,
+.deck .item-form {
+  flex: 0 0 auto;
+}
+
+.deck ul li {
+  flex: 0 0 auto; /* list items shouldn't stretch */
+}
+
+@media (max-width: 600px) {
+  /* On small screens, allow taller scrolling area */
+  .deck {
+    max-height: 50vh;
+    padding: 0.75rem;
+  }
+}
+
+/* Custom scrollbar / scroll track for category lists */
+.deck ul {
+  /* Reserve space for scrollbar to avoid layout jumps */
+  scrollbar-gutter: stable;
+}
+
+/* WebKit browsers (Chrome, Edge, Safari) */
+.deck ul::-webkit-scrollbar {
+  width: 10px;
+}
+.deck ul::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 999px;
+}
+.deck ul::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #cfcfcf, #bdbdbd);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.deck ul::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #b0b0b0, #999999);
+}
+
+/* Firefox */
+.deck ul {
+  scrollbar-width: thin;
+  scrollbar-color: #bdbdbd #f1f1f1;
+}
+
+/* Slight visual polish: show subtle shadow for thumb */
+.deck ul::-webkit-scrollbar-thumb {
+  box-shadow: inset 0 0 1px rgba(0,0,0,0.15);
+}
+
+/* Simple always-visible visual scrollbar (non-interactive) */
+.deck {
+  position: relative; /* required for the visual scrollbar */
+}
+
+.deck-scrollbar {
+  position: absolute;
+  right: 6px;
+  width: 6px; /* smaller */
+  border-radius: 999px;
+  background: transparent;
+  pointer-events: none; /* don't block mouse interactions by default */
+  display: none; /* start hidden; JS will show when needed */
+}
+
+.deck-scrollbar-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.035);
+  border-radius: 999px;
+}
+
+.deck-scrollbar-thumb {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background: linear-gradient(180deg, #cfcfcf, #bdbdbd);
+  border-radius: 999px;
+  box-shadow: inset 0 0 1px rgba(0,0,0,0.12);
+  transition: transform 120ms linear;
+  pointer-events: auto; /* allow dragging */
+  cursor: grab;
+}
+
+.deck-scrollbar-thumb.dragging {
+  cursor: grabbing;
+}
+
+/* When deck is collapsed, ensure the scrollbar stays hidden */
+.deck.collapsed .deck-scrollbar {
+  display: none !important;
+}
+
 .deck.edit-mode {
   background: #80ba9a;
 }
@@ -717,6 +831,31 @@ li .content {
 .favorite-toggle.filled {
   color: var(--favorite-heart-color, #d43d4a);
 }
+
+/* SVG heart styling for iOS replacement */
+.favorite-toggle svg,
+.details-favorite-heart svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+  fill: currentColor;
+}
+
+.details-favorite-heart {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  font-size: 1.1rem;
+}
+
+.favorite-toggle.filled svg,
+.details-favorite-heart.filled svg {
+  color: var(--favorite-heart-color, #d43d4a);
+}
+
+.favorite-toggle svg { color: #888; }
 
 .favorite-item-details {
   padding: 0;
