@@ -1,5 +1,6 @@
 ﻿const STORAGE_KEY = "clothing-decks";
 const IMAGE_GALLERY_KEY = "clothing-image-gallery";
+const GALLERY_SORT_KEY = "clothing-image-gallery-sort";
 const FAVORITE_HEART_COLOR_KEY = "favorite-heart-color";
 const PENDING_IMAGE_SELECTION_KEY = "clothing-pending-image-selection";
 const PENDING_IMAGE_TARGET_KEY = "clothing-pending-image-target";
@@ -486,6 +487,7 @@ function addImageInteractions(image, primaryImage, secondImage) {
         clickTimer = null;
       }
       showingSecondImage = !showingSecondImage;
+      touchGalleryImage(showingSecondImage ? secondImage : primaryImage, 0);
       const source = await getImageSource(showingSecondImage ? secondImage : primaryImage);
       if (source) image.src = source;
     });
@@ -965,6 +967,50 @@ function confirmDeleteDeck() {
   renderDecks();
 }
 
+function getGalleryImageKey(image) {
+  if (!image) {
+    return "";
+  }
+  if (typeof image === "string") {
+    return `src:${image}`;
+  }
+  if (typeof image.imageId === "string") {
+    return `imageId:${image.imageId}`;
+  }
+  if (typeof image.src === "string") {
+    return `src:${image.src}`;
+  }
+  return "";
+}
+
+function normalizeGalleryImage(image) {
+  if (typeof image === "string") {
+    return {
+      src: image,
+      addedAt: Date.now(),
+      lastEditedAt: Date.now(),
+      usageCount: 0
+    };
+  }
+
+  if (!image || typeof image !== "object") {
+    return null;
+  }
+
+  const normalized = {
+    ...image,
+    addedAt: Number.isFinite(Number(image.addedAt)) ? Number(image.addedAt) : Date.now(),
+    lastEditedAt: Number.isFinite(Number(image.lastEditedAt)) ? Number(image.lastEditedAt) : Date.now(),
+    usageCount: Number.isFinite(Number(image.usageCount)) ? Number(image.usageCount) : 0
+  };
+
+  if (typeof normalized.src === "string" || typeof normalized.imageId === "string") {
+    return normalized;
+  }
+
+  return null;
+}
+
 function loadGallery() {
   const raw = localStorage.getItem(IMAGE_GALLERY_KEY);
   if (!raw) {
@@ -973,7 +1019,7 @@ function loadGallery() {
 
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.map(normalizeGalleryImage).filter(Boolean) : [];
   } catch {
     return [];
   }
@@ -981,10 +1027,20 @@ function loadGallery() {
 
 function saveGallery(images) {
   const existing = loadGallery();
-  const uniqueImages = [...existing, ...images].filter((image, index, allImages) => {
-    const key = typeof image === "string" ? image : image?.imageId;
-    return key && allImages.findIndex((candidate) => (typeof candidate === "string" ? candidate : candidate?.imageId) === key) === index;
+  const normalizedImages = [...existing, ...images.map(normalizeGalleryImage)].filter(Boolean);
+  const uniqueImages = [];
+  const seenKeys = new Set();
+
+  normalizedImages.forEach((image) => {
+    const key = getGalleryImageKey(image);
+    if (!key || seenKeys.has(key)) {
+      return;
+    }
+
+    seenKeys.add(key);
+    uniqueImages.push(image);
   });
+
   try {
     localStorage.setItem(IMAGE_GALLERY_KEY, JSON.stringify(uniqueImages));
     scheduleGoogleCloudSync();
@@ -996,14 +1052,69 @@ function saveGallery(images) {
 }
 
 function replaceGallery(images) {
+  const normalizedImages = images.map(normalizeGalleryImage).filter(Boolean);
   try {
-    localStorage.setItem(IMAGE_GALLERY_KEY, JSON.stringify(images));
+    localStorage.setItem(IMAGE_GALLERY_KEY, JSON.stringify(normalizedImages));
     scheduleGoogleCloudSync();
     return true;
   } catch (error) {
     console.error("Could not update gallery images:", error);
     return false;
   }
+}
+
+function loadGallerySortPreference() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GALLERY_SORT_KEY) || "{}");
+    return {
+      mode: ["addedAt", "lastEditedAt", "usageCount"].includes(parsed.mode) ? parsed.mode : "addedAt",
+      direction: parsed.direction === "asc" ? "asc" : "desc"
+    };
+  } catch {
+    return { mode: "addedAt", direction: "desc" };
+  }
+}
+
+function saveGallerySortPreference(mode, direction) {
+  const nextMode = ["addedAt", "lastEditedAt", "usageCount"].includes(mode) ? mode : "addedAt";
+  const nextDirection = direction === "asc" ? "asc" : "desc";
+  localStorage.setItem(GALLERY_SORT_KEY, JSON.stringify({ mode: nextMode, direction: nextDirection }));
+}
+
+function getGallerySortValue(image, mode) {
+  const normalized = normalizeGalleryImage(image) || {};
+  const value = mode === "usageCount" ? Number(normalized.usageCount || 0) : Number(normalized[mode] || 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function sortGalleryImages(images, mode = "addedAt", direction = "desc") {
+  const normalized = images.map(normalizeGalleryImage).filter(Boolean);
+  const nextDirection = direction === "asc" ? "asc" : "desc";
+  return [...normalized].sort((first, second) => {
+    const firstValue = getGallerySortValue(first, mode);
+    const secondValue = getGallerySortValue(second, mode);
+    const comparison = firstValue < secondValue ? -1 : firstValue > secondValue ? 1 : 0;
+    return nextDirection === "asc" ? comparison : comparison * -1;
+  });
+}
+
+function touchGalleryImage(image, usageDelta = 1) {
+  const entryKey = getGalleryImageKey(image);
+  if (!entryKey) {
+    return;
+  }
+
+  const gallery = loadGallery();
+  const index = gallery.findIndex((candidate) => getGalleryImageKey(candidate) === entryKey);
+  if (index === -1) {
+    return;
+  }
+
+  const entry = normalizeGalleryImage(gallery[index]) || {};
+  entry.lastEditedAt = Date.now();
+  entry.usageCount = Math.max(0, Number(entry.usageCount || 0) + Number(usageDelta || 0));
+  gallery[index] = entry;
+  replaceGallery(gallery);
 }
 
 async function deleteGalleryImage(galleryIndex) {
@@ -1997,6 +2108,9 @@ document.addEventListener("click", (event) => {
         return;
       }
 
+      touchGalleryImage(item, 0);
+      touchGalleryImage(item.secondImage, 0);
+
       const previousPrimary = typeof item.src === "string"
         ? { src: item.src }
         : { imageId: item.imageId };
@@ -2285,7 +2399,10 @@ function openFavoriteOutfitDetails(outfitIndex) {
   modal.innerHTML = `
     <div class="item-details-content favorite-outfit-details">
       <button type="button" class="details-close-btn" aria-label="Close outfit details">×</button>
-      <button type="button" class="details-edit-btn" aria-label="Edit outfit name">Edit</button>
+      <div class="favorite-outfit-header-actions">
+        <button type="button" class="details-edit-btn" aria-label="Edit outfit name">Edit</button>
+        <button type="button" class="favorite-outfit-delete-btn danger hidden" aria-label="Delete favorite outfit">Delete outfit</button>
+      </div>
       <div class="favorite-outfit-display"><h2 class="favorite-outfit-details-name"></h2><div class="favorite-outfit-detail-items"></div></div>
       <form class="favorite-outfit-edit-form hidden"><label for="favorite-outfit-name-input">Outfit name</label><input id="favorite-outfit-name-input" type="text" maxlength="80" placeholder="Outfit name" /><div class="modal-actions"><button type="button" class="favorite-outfit-cancel">Cancel</button><button type="submit">Save</button></div></form>
     </div>`;
@@ -2295,40 +2412,145 @@ function openFavoriteOutfitDetails(outfitIndex) {
   const display = modal.querySelector(".favorite-outfit-display");
   const editForm = modal.querySelector(".favorite-outfit-edit-form");
   const nameInput = modal.querySelector("#favorite-outfit-name-input");
-  const getOutfitName = () => favoriteOutfits[outfitIndex].name || `Outfit ${outfitIndex + 1}`;
+  const deleteOutfitButton = modal.querySelector(".favorite-outfit-delete-btn");
+  const editButton = modal.querySelector(".details-edit-btn");
+  const getOutfitName = () => favoriteOutfits[outfitIndex]?.name || `Outfit ${outfitIndex + 1}`;
+  let isEditingOutfit = false;
+
+  const updateCardName = () => {
+    const cardName = document.querySelector(`.favorite-outfit-card[data-outfit-index="${outfitIndex}"] .favorite-outfit-name`);
+    if (cardName) cardName.textContent = getOutfitName();
+  };
+
+  const setOutfitEditMode = (enabled) => {
+    isEditingOutfit = enabled;
+    deleteOutfitButton.hidden = !enabled;
+    deleteOutfitButton.classList.toggle("hidden", !enabled);
+    itemList.querySelectorAll(".favorite-outfit-item-remove").forEach((button) => {
+      button.hidden = !enabled;
+      button.classList.toggle("hidden", !enabled);
+    });
+
+    display.hidden = false;
+    display.classList.remove("hidden");
+    display.style.display = "block";
+    itemList.hidden = false;
+    itemList.classList.remove("hidden");
+    itemList.style.display = "grid";
+    editForm.classList.toggle("hidden", !enabled);
+    editForm.hidden = !enabled;
+    editForm.style.display = enabled ? "flex" : "none";
+
+    if (enabled) {
+      nameInput.value = favoriteOutfits[outfitIndex].name || "";
+      nameInput.focus();
+    }
+  };
+
+  const renderItems = () => {
+    itemList.innerHTML = "";
+    if (!outfit.items.length) {
+      const emptyMessage = document.createElement("p");
+      emptyMessage.className = "empty-message";
+      emptyMessage.textContent = "This outfit is empty.";
+      itemList.appendChild(emptyMessage);
+      return;
+    }
+
+    outfit.items.forEach((item, itemPosition) => {
+      const itemRow = document.createElement("div");
+      itemRow.className = "favorite-outfit-detail-item";
+      const image = document.createElement("img");
+      image.alt = item.name || "outfit item";
+      hydrateStoredImage(image, getOutfitSource(item));
+      const label = document.createElement("span");
+      label.textContent = item.name || "Unnamed item";
+
+      const removeItemButton = document.createElement("button");
+      removeItemButton.type = "button";
+      removeItemButton.className = "favorite-outfit-item-remove hidden";
+      removeItemButton.textContent = "×";
+      removeItemButton.setAttribute("aria-label", `Remove ${label.textContent} from outfit`);
+      removeItemButton.addEventListener("click", () => {
+        outfit.items.splice(itemPosition, 1);
+        saveFavoriteOutfits();
+
+        if (!outfit.items.length) {
+          favoriteOutfits.splice(outfitIndex, 1);
+          saveFavoriteOutfits();
+          modal.remove();
+          showFavoritesPage();
+          return;
+        }
+
+        updateCardName();
+        renderOutfitCardPreview();
+        renderItems();
+      });
+
+      itemRow.append(image, label, removeItemButton);
+      itemList.appendChild(itemRow);
+    });
+  };
+
+  const renderOutfitCardPreview = () => {
+    const card = document.querySelector(`.favorite-outfit-card[data-outfit-index="${outfitIndex}"]`);
+    if (!card) return;
+    const collage = card.querySelector(".favorite-outfit-collage");
+    if (!collage) return;
+    collage.innerHTML = "";
+    (favoriteOutfits[outfitIndex]?.items || []).slice(0, 4).forEach((item) => {
+      const image = document.createElement("img");
+      image.alt = item.name || "outfit item";
+      hydrateStoredImage(image, getOutfitSource(item));
+      collage.appendChild(image);
+    });
+  };
+
   nameHeading.textContent = getOutfitName();
-  outfit.items.forEach((item) => {
-    const itemRow = document.createElement("div");
-    itemRow.className = "favorite-outfit-detail-item";
-    const image = document.createElement("img");
-    image.alt = item.name || "outfit item";
-    hydrateStoredImage(image, getOutfitSource(item));
-    const label = document.createElement("span");
-    label.textContent = item.name || "Unnamed item";
-    itemRow.append(image, label);
-    itemList.appendChild(itemRow);
-  });
+  renderItems();
+  setOutfitEditMode(false);
+
   const close = () => modal.remove();
   modal.querySelector(".details-close-btn").addEventListener("click", close);
-  modal.querySelector(".details-edit-btn").addEventListener("click", () => {
-    nameInput.value = favoriteOutfits[outfitIndex].name || "";
-    display.classList.add("hidden");
+  editButton.addEventListener("click", () => {
+    editButton.hidden = true;
+    editButton.classList.add("hidden");
+    display.classList.remove("hidden");
+    itemList.classList.remove("hidden");
     editForm.classList.remove("hidden");
-    nameInput.focus();
+    editForm.hidden = false;
+    setOutfitEditMode(true);
   });
   modal.querySelector(".favorite-outfit-cancel").addEventListener("click", () => {
-    editForm.classList.add("hidden");
+    editButton.hidden = false;
+    editButton.classList.remove("hidden");
     display.classList.remove("hidden");
+    itemList.classList.remove("hidden");
+    editForm.classList.add("hidden");
+    editForm.hidden = true;
+    setOutfitEditMode(false);
+  });
+  deleteOutfitButton.addEventListener("click", () => {
+    if (!window.confirm("Delete this saved outfit?")) return;
+    favoriteOutfits.splice(outfitIndex, 1);
+    saveFavoriteOutfits();
+    modal.remove();
+    showFavoritesPage();
   });
   editForm.addEventListener("submit", (event) => {
     event.preventDefault();
     favoriteOutfits[outfitIndex].name = nameInput.value.trim();
     saveFavoriteOutfits();
     nameHeading.textContent = getOutfitName();
-    const cardName = document.querySelector(`.favorite-outfit-card[data-outfit-index="${outfitIndex}"] .favorite-outfit-name`);
-    if (cardName) cardName.textContent = getOutfitName();
-    editForm.classList.add("hidden");
+    updateCardName();
+    editButton.hidden = false;
+    editButton.classList.remove("hidden");
     display.classList.remove("hidden");
+    itemList.classList.remove("hidden");
+    editForm.classList.add("hidden");
+    editForm.hidden = true;
+    setOutfitEditMode(false);
   });
   modal.addEventListener("click", (event) => { if (event.target === modal) close(); });
 }
@@ -2710,6 +2932,9 @@ function showImagesPage() {
     decks[pendingImageTarget.deck] &&
     Number.isInteger(pendingImageTarget.index)
   );
+  const gallerySortPreference = loadGallerySortPreference();
+  const sortedGallery = sortGalleryImages(gallery, gallerySortPreference.mode, gallerySortPreference.direction);
+
   document.body.innerHTML = `
     <div class="top-buttons">
       <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
@@ -2731,14 +2956,31 @@ function showImagesPage() {
           <input id="gallery-url" type="text" placeholder="Paste image URL" />
           <button type="submit">Add image</button>
         </form>
+        <div class="gallery-sort-controls">
+          <label for="gallery-sort-mode">Sort by</label>
+          <select id="gallery-sort-mode">
+            <option value="addedAt" ${gallerySortPreference.mode === "addedAt" ? "selected" : ""}>Newest added</option>
+            <option value="lastEditedAt" ${gallerySortPreference.mode === "lastEditedAt" ? "selected" : ""}>Latest edited</option>
+            <option value="usageCount" ${gallerySortPreference.mode === "usageCount" ? "selected" : ""}>Times used</option>
+          </select>
+          <button type="button" id="gallery-sort-direction" class="gallery-sort-toggle" aria-label="Toggle sort direction">
+            ${
+              gallerySortPreference.mode === "usageCount"
+                ? (gallerySortPreference.direction === "desc" ? "Most" : "Least")
+                : gallerySortPreference.mode === "lastEditedAt"
+                  ? (gallerySortPreference.direction === "desc" ? "Latest" : "Oldest")
+                  : (gallerySortPreference.direction === "desc" ? "Newest" : "Oldest")
+            }
+          </button>
+        </div>
         <div style="text-align: center; margin: 1rem 0;">
           <label for="gallery-file-input" style="display: block; margin-bottom: 0.5rem;">Or upload from device:</label>
           <input type="file" id="gallery-file-input" accept="image/*" multiple style="display: block; margin: 0 auto;" />
         </div>
       `}
       <div class="gallery-list">
-        ${gallery.length ? gallery.map((image, index) => {
-          const src = typeof image === "string" ? image : "";
+        ${sortedGallery.length ? sortedGallery.map((image, index) => {
+          const src = typeof image === "string" ? image : image?.src || "";
           const imageId = typeof image === "object" && image ? image.imageId : "";
           return `
           <div class="gallery-item">
@@ -2840,6 +3082,26 @@ function showImagesPage() {
     });
   }
 
+  const gallerySortMode = document.getElementById("gallery-sort-mode");
+  const gallerySortDirection = document.getElementById("gallery-sort-direction");
+
+  if (gallerySortMode) {
+    gallerySortMode.addEventListener("change", () => {
+      const sortPreference = loadGallerySortPreference();
+      saveGallerySortPreference(gallerySortMode.value, sortPreference.direction);
+      showImagesPage();
+    });
+  }
+
+  if (gallerySortDirection) {
+    gallerySortDirection.addEventListener("click", () => {
+      const sortPreference = loadGallerySortPreference();
+      const nextDirection = sortPreference.direction === "desc" ? "asc" : "desc";
+      saveGallerySortPreference(sortPreference.mode, nextDirection);
+      showImagesPage();
+    });
+  }
+
   const fileInput = document.getElementById("gallery-file-input");
   if (fileInput) {
     fileInput.addEventListener("change", (event) => {
@@ -2874,8 +3136,9 @@ function showImagesPage() {
   document.querySelectorAll(".gallery-use").forEach((button) => {
     button.addEventListener("click", () => {
       const galleryIndex = Number(button.dataset.galleryIndex);
-      const galleryImage = gallery[galleryIndex];
+      const galleryImage = sortedGallery[galleryIndex];
       if (!galleryImage) return;
+      touchGalleryImage(galleryImage, 1);
       const imageItem = typeof galleryImage === "string"
         ? { src: galleryImage, name: "", favorite: false }
         : { imageId: galleryImage.imageId, name: "", favorite: false };
@@ -3078,7 +3341,12 @@ function showFavoritesPage() {
     <section class="deck favorite-outfits-deck">
       <div class="deck-header"><h2>Your Favorite Outfits (${favoriteOutfits.length})</h2></div>
       <div class="favorite-outfit-list">
-        ${favoriteOutfits.map((outfit, index) => `<button type="button" class="favorite-outfit-card" data-outfit-index="${index}" aria-label="View favorite outfit ${index + 1}"><span class="favorite-outfit-collage" data-outfit-images="${index}"></span><span class="favorite-outfit-name">${escapeHtmlAttribute(outfit.name || `Outfit ${index + 1}`)}</span></button>`).join("")}
+        ${favoriteOutfits.map((outfit, index) => `
+          <button type="button" class="favorite-outfit-card" data-outfit-index="${index}" aria-label="View favorite outfit ${index + 1}">
+            <span class="favorite-outfit-collage" data-outfit-images="${index}"></span>
+            <span class="favorite-outfit-name">${escapeHtmlAttribute(outfit.name || `Outfit ${index + 1}`)}</span>
+          </button>
+        `).join("")}
       </div>
     </section>` : "";
 
