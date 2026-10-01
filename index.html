@@ -5,13 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Closet</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://google.com" async defer></script>
   </head>
+ 
+</body>
+</html>
   <body>
     <div class="top-buttons">
+      <div class="top-buttons-left">
       <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
       <button type="button" id="edit-button" class="page-switch edit-button">Edit</button>
+      </div>
+      <div class="top-buttons-right">
       <button type="button" id="tags-button" class="page-switch tags-button">Tags</button>
+      <button type="button" id="view-toggle-button" class="page-switch view-toggle-button" aria-label="Switch to gallery view">Gallery</button>
       <button type="button" id="add-category-button" class="page-switch add-category-button hidden" aria-label="Add category">+</button>
+      </div>
+      <div class="g_id_onload">
+        <button type="button" id="g_id_onload" class="page-switch g_id_onload" 
+       data-client_id="909116472310-u9uqfr2dmeu4fl167l5fhupibud6g1bt.apps.googleusercontent.com"
+       data-context="signin"
+       data-ux_mode="popup"
+       data-callback="handleCredentialResponse"
+       data-auto_select="false"> </button>
+  </div>
+
+  <div class="g_id_signin" data-type="standard" data-size="large"></div>
     </div>
     <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
     <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
@@ -40,7 +59,7 @@
       </div>
       <p id="closet-search-empty" class="search-empty hidden">No items match that search.</p>
 
-      <div class="deck-grid">
+      <div class="deck-grid list-view">
         <section class="deck" data-deck="shirts">
           <div class="deck-header">
             <h2>Shirts</h2>
@@ -118,6 +137,14 @@
         </div>
       </div>
     </div>
+  <script>
+    function handleCredentialResponse(response) {
+      const token = response.credential;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const googleUserId = payload.sub;
+      console.log(googleUserId);
+    }
+  </script>
 
     <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
