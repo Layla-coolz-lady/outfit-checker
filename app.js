@@ -22,7 +22,325 @@ const defaultDecks = {
   shoes: ["Sneakers", "Boots"]
 };
 
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBsNtfY6sloF7j56UlhfWfsYpFU1zrEdXA",
+  authDomain: "outfit-maker-coolzlady.firebaseapp.com",
+  databaseURL: "https://outfit-maker-coolzlady-default-rtdb.firebaseio.com",
+  projectId: "outfit-maker-coolzlady",
+  storageBucket: "outfit-maker-coolzlady.firebasestorage.app",
+  messagingSenderId: "24828460460",
+  appId: "1:24828460460:web:f98027fced77d0af410e09"
+};
+
 let collapsedDecks = { shirts: false, pants: false, shoes: false };
+let firebaseApp = null;
+let firebaseAuth = null;
+let firebaseDb = null;
+let currentGoogleUser = null;
+let cloudSyncTimer = null;
+
+function getFirebaseReady() {
+  if (!window.firebase || !window.firebase.apps || typeof window.firebase.initializeApp !== "function") {
+    return false;
+  }
+
+  if (!firebaseApp) {
+    const config = FIREBASE_CONFIG || {};
+    if (!config.projectId || config.projectId.includes("YOUR_PROJECT") || config.projectId === "YOUR_PROJECT_ID") {
+      return false;
+    }
+
+    firebaseApp = window.firebase.initializeApp(config);
+    firebaseAuth = window.firebase.auth();
+    firebaseDb = window.firebase.firestore();
+
+    if (firebaseAuth && typeof firebaseAuth.setPersistence === "function") {
+      firebaseAuth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch((error) => {
+        console.error("Could not set auth persistence:", error);
+      });
+    }
+
+    if (firebaseAuth && typeof firebaseAuth.onAuthStateChanged === "function") {
+      firebaseAuth.onAuthStateChanged((user) => {
+        currentGoogleUser = user;
+        updateGoogleAuthUi();
+        if (user) {
+          loadGoogleCloudState();
+        } else {
+          resetClosetStateToDefault();
+        }
+      });
+    }
+  }
+
+  return Boolean(firebaseApp);
+}
+
+function scheduleGoogleCloudSync() {
+  if (!currentGoogleUser || !firebaseDb) {
+    return;
+  }
+
+  if (cloudSyncTimer) {
+    clearTimeout(cloudSyncTimer);
+  }
+
+  cloudSyncTimer = setTimeout(async () => {
+    try {
+      await saveGoogleCloudState();
+    } catch (error) {
+      console.error("Could not sync closet data to Google account:", error);
+    }
+  }, 350);
+}
+
+async function saveGoogleCloudState() {
+  if (!currentGoogleUser || !firebaseDb) {
+    return;
+  }
+
+  const payload = {
+    decks,
+    deckNames,
+    collapsedDecks,
+    tags: closetTags,
+    outfitBoardItems,
+    favoriteOutfits,
+    favoriteHeartColor: loadFavoriteHeartColor(),
+    galleryImages: loadGallery(),
+    updatedAt: new Date().toISOString()
+  };
+
+  await firebaseDb.collection("closet-sync").doc(currentGoogleUser.uid).set(payload);
+  updateGoogleAuthUi();
+}
+
+async function loadGoogleCloudState() {
+  if (!currentGoogleUser || !firebaseDb) {
+    return;
+  }
+
+  const doc = await firebaseDb.collection("closet-sync").doc(currentGoogleUser.uid).get();
+  if (!doc.exists) {
+    await saveGoogleCloudState();
+    return;
+  }
+
+  const data = doc.data() || {};
+  const nextDecks = data.decks && typeof data.decks === "object" ? data.decks : { ...defaultDecks };
+  const nextDeckNames = Array.isArray(data.deckNames) ? data.deckNames.filter((name) => typeof name === "string" && name in nextDecks) : Object.keys(nextDecks);
+
+  decks = { ...defaultDecks, ...nextDecks };
+  deckNames = nextDeckNames.length ? nextDeckNames : Object.keys(decks);
+
+  if (data.collapsedDecks && typeof data.collapsedDecks === "object") {
+    collapsedDecks = Object.keys(data.collapsedDecks).reduce((acc, key) => {
+      acc[key] = Boolean(data.collapsedDecks[key]);
+      return acc;
+    }, {});
+  }
+
+  if (Array.isArray(data.tags)) {
+    closetTags = data.tags.filter((tag) => typeof tag === "string" && tag.trim());
+  }
+
+  if (Array.isArray(data.outfitBoardItems)) {
+    outfitBoardItems = data.outfitBoardItems;
+  }
+
+  if (Array.isArray(data.favoriteOutfits)) {
+    favoriteOutfits = data.favoriteOutfits;
+  }
+
+  if (typeof data.favoriteHeartColor === "string") {
+    saveFavoriteHeartColor(data.favoriteHeartColor);
+  }
+
+  if (Array.isArray(data.galleryImages)) {
+    replaceGallery(data.galleryImages);
+  }
+
+  saveDecks();
+  saveTags();
+  saveOutfitBoard();
+  saveFavoriteOutfits();
+  renderDecks();
+  if (document.body && document.querySelector(".favorites-page")) {
+    showFavoritesPage();
+  }
+}
+
+function updateGoogleAuthUi() {
+  const loginButton = document.getElementById("google-login-button");
+  const logoutButton = document.getElementById("google-logout-button");
+  const authSigninShell = document.getElementById("auth-signin-shell");
+  const authProfileShell = document.getElementById("auth-profile-shell");
+  const profileImage = document.getElementById("google-profile-image");
+  const profileButton = document.getElementById("google-profile-button");
+
+  const isConfigured = getFirebaseReady();
+
+  if (!authSigninShell || !authProfileShell) {
+    return;
+  }
+
+  if (!isConfigured) {
+    authSigninShell.classList.remove("hidden");
+    authProfileShell.classList.add("hidden");
+    if (loginButton) {
+      loginButton.disabled = true;
+      loginButton.textContent = "Google sync not ready";
+    }
+    if (logoutButton) logoutButton.classList.add("hidden");
+    return;
+  }
+
+  if (currentGoogleUser) {
+    authSigninShell.classList.add("hidden");
+    authProfileShell.classList.remove("hidden");
+    if (profileButton) {
+      profileButton.title = currentGoogleUser.displayName || currentGoogleUser.email || "Google account";
+    }
+    if (profileImage) {
+      profileImage.src = currentGoogleUser.photoURL || "https://www.google.com/s2/favicons?sz=64&domain=google.com";
+      profileImage.alt = currentGoogleUser.displayName || currentGoogleUser.email || "Google profile";
+    }
+    if (logoutButton) logoutButton.classList.remove("hidden");
+  } else {
+    authSigninShell.classList.remove("hidden");
+    authProfileShell.classList.add("hidden");
+    if (loginButton) {
+      loginButton.disabled = false;
+      loginButton.textContent = "Sign in with Google";
+    }
+    if (logoutButton) logoutButton.classList.add("hidden");
+  }
+}
+
+async function signInWithGoogle() {
+  if (!getFirebaseReady()) {
+    alert("Add your Firebase config values to FIREBASE_CONFIG in app.js to enable Google sign-in.");
+    return;
+  }
+
+  const provider = new window.firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  try {
+    const result = await firebaseAuth.signInWithPopup(provider);
+    currentGoogleUser = result?.user || null;
+    updateGoogleAuthUi();
+    if (currentGoogleUser) {
+      await loadGoogleCloudState();
+      window.location.reload();
+    }
+  } catch (error) {
+    console.error("Google popup sign-in error:", error);
+    const errorText = error && (error.code || error.message)
+      ? `Google sign-in failed (${error.code || "unknown code"}): ${error.message || "Please try again."}`
+      : "Google sign-in failed. Please try again, or check the Firebase project configuration.";
+    alert(errorText);
+  }
+}
+
+async function signOutOfGoogle() {
+  if (!firebaseAuth) {
+    resetClosetStateToDefault();
+    showMainPage();
+    renderDecks();
+    return;
+  }
+
+  try {
+    await clearAllLocalImageData();
+    resetClosetStateToDefault();
+    await firebaseAuth.signOut();
+    currentGoogleUser = null;
+    updateGoogleAuthUi();
+    showMainPage();
+    renderDecks();
+    window.location.reload();
+  } catch (error) {
+    console.error("Google sign-out error:", error);
+    currentGoogleUser = null;
+    resetClosetStateToDefault();
+    updateGoogleAuthUi();
+    showMainPage();
+    renderDecks();
+    window.location.reload();
+  }
+}
+
+function addAuthControls() {
+  const existingRoot = document.getElementById("auth-root");
+  if (existingRoot) {
+    updateGoogleAuthUi();
+    return;
+  }
+
+  const sidebarNav = document.querySelector("#sidebar .sidebar-nav");
+  const authRoot = document.createElement("div");
+  authRoot.id = "auth-root";
+  authRoot.className = "auth-root sidebar-auth";
+  authRoot.innerHTML = `
+    <div id="auth-signin-shell" class="auth-signin-shell">
+      <button id="google-login-button" type="button" class="sidebar-item auth-signin-button">Sign in with Google</button>
+    </div>
+    <div id="auth-profile-shell" class="auth-profile-shell hidden">
+      <div class="sidebar-profile" tabindex="0">
+        <button id="google-profile-button" type="button" class="sidebar-profile-button" aria-label="Account menu">
+          <img id="google-profile-image" class="sidebar-profile-image" src="" alt="Profile" />
+        </button>
+        <div class="sidebar-profile-menu">
+          <button id="google-logout-button" type="button" class="sidebar-item logout-menu-button">Sign out</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (sidebarNav) {
+    sidebarNav.appendChild(authRoot);
+  } else {
+    document.body.appendChild(authRoot);
+  }
+
+  document.getElementById("google-login-button")?.addEventListener("click", signInWithGoogle);
+  document.getElementById("google-logout-button")?.addEventListener("click", signOutOfGoogle);
+  updateGoogleAuthUi();
+}
+
+function withGoogleAuthControls(renderCallback) {
+  document.body.innerHTML = "";
+  renderCallback();
+  addAuthControls();
+}
+
+async function clearAllLocalImageData() {
+  const database = await openImageDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(IMAGE_STORE_NAME, "readwrite");
+    const request = transaction.objectStore(IMAGE_STORE_NAME).clear();
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error("Could not clear image storage."));
+  });
+}
+
+function resetClosetStateToDefault() {
+  decks = { ...defaultDecks };
+  deckNames = ["shirts", "pants", "shoes"];
+  collapsedDecks = { shirts: false, pants: false, shoes: false };
+  closetTags = [];
+  outfitBoardItems = [];
+  favoriteOutfits = [];
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(IMAGE_GALLERY_KEY);
+  localStorage.removeItem(TAGS_KEY);
+  localStorage.removeItem(OUTFIT_BOARD_KEY);
+  localStorage.removeItem(FAVORITE_OUTFITS_KEY);
+  localStorage.removeItem(PENDING_IMAGE_SELECTION_KEY);
+  localStorage.removeItem(PENDING_IMAGE_TARGET_KEY);
+  saveFavoriteHeartColor("#d43d4a");
+  applyFavoriteHeartColor();
+}
 
 function isImageUrl(value) {
   return /^https?:\/\//i.test(value);
@@ -521,6 +839,7 @@ function saveDecks() {
       deckOrder: deckNames,
       collapsedDecks
     }));
+    scheduleGoogleCloudSync();
     return true;
   } catch (error) {
     console.error("Could not save closet data:", error);
@@ -585,6 +904,7 @@ function saveGallery(images) {
   });
   try {
     localStorage.setItem(IMAGE_GALLERY_KEY, JSON.stringify(uniqueImages));
+    scheduleGoogleCloudSync();
     return true;
   } catch (error) {
     console.error("Could not save gallery images:", error);
@@ -595,6 +915,7 @@ function saveGallery(images) {
 function replaceGallery(images) {
   try {
     localStorage.setItem(IMAGE_GALLERY_KEY, JSON.stringify(images));
+    scheduleGoogleCloudSync();
     return true;
   } catch (error) {
     console.error("Could not update gallery images:", error);
@@ -645,6 +966,7 @@ function loadFavoriteHeartColor() {
 
 function saveFavoriteHeartColor(color) {
   localStorage.setItem(FAVORITE_HEART_COLOR_KEY, color);
+  scheduleGoogleCloudSync();
 }
 
 function loadTags() {
@@ -658,6 +980,7 @@ function loadTags() {
 
 function saveTags() {
   localStorage.setItem(TAGS_KEY, JSON.stringify(closetTags));
+  scheduleGoogleCloudSync();
 }
 
 function loadOutfitBoard() {
@@ -671,6 +994,7 @@ function loadOutfitBoard() {
 
 function saveOutfitBoard() {
   localStorage.setItem(OUTFIT_BOARD_KEY, JSON.stringify(outfitBoardItems));
+  scheduleGoogleCloudSync();
 }
 
 function loadFavoriteOutfits() {
@@ -684,6 +1008,7 @@ function loadFavoriteOutfits() {
 
 function saveFavoriteOutfits() {
   localStorage.setItem(FAVORITE_OUTFITS_KEY, JSON.stringify(favoriteOutfits));
+  scheduleGoogleCloudSync();
 }
 
 function applyFavoriteHeartColor(color = loadFavoriteHeartColor()) {
@@ -1412,6 +1737,7 @@ function showMainPage() {
     </div>
   `;
 
+  addAuthControls();
   bindMainPageEvents();
   setEditMode(editMode);
   applyPendingSelection();
@@ -1862,6 +2188,7 @@ function showOutfitMaker() {
     </main>
   `;
 
+  addAuthControls();
   const display = document.getElementById("outfit-display");
   let activeOutfitDrag = null;
   let lastOutfitTap = { card: null, time: 0 };
@@ -2062,6 +2389,7 @@ function showBlankPage(message) {
     </div>
   `;
 
+  addAuthControls();
   const menuButton = document.getElementById("menu-button");
   const pageBackButton = document.getElementById("page-back-button");
   const sidebar = document.getElementById("sidebar");
@@ -2171,6 +2499,7 @@ function showImagesPage() {
     </div>
   `;
 
+  addAuthControls();
   document.querySelectorAll(".gallery-item img[data-image-id]").forEach((image) => {
     const imageId = image.dataset.imageId;
     if (imageId) hydrateStoredImage(image, { imageId });
@@ -2538,6 +2867,7 @@ function showFavoritesPage() {
     </div>
   `;
 
+  addAuthControls();
   document.querySelectorAll(".favorites-page img[data-image-id]").forEach((image) => {
     const imageId = image.dataset.imageId;
     if (imageId) hydrateStoredImage(image, { imageId });
