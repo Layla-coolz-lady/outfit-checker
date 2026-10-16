@@ -513,12 +513,15 @@ body {
   margin-left: 0.35rem;
   padding: 0.35rem 0.55rem;
   font-size: 0.9rem;
+  align-self: flex-start;
 }
 
 .search-tag-filter-panel {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, max-content));
+  align-items: center;
+  gap: 0.45rem;
+  width: min(100%, 420px);
   margin-top: 0.55rem;
   padding: 0.65rem;
   border: 1px solid #d5e6dc;
@@ -526,6 +529,7 @@ body {
   background: #f7fbf8;
   color: #355;
   font-size: 0.9rem;
+  box-sizing: border-box;
 }
 
 .search-tag-filter-panel.hidden {
@@ -536,6 +540,41 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+}
+
+.search-tag-filter-panel .tag-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid #bdd8c7;
+  border-radius: 999px;
+  background: #fff;
+  color: #2d4d42;
+  padding: 0.25rem 0.65rem;
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.search-tag-filter-panel .tag-filter-chip:hover {
+  transform: translateY(-1px);
+}
+
+.search-tag-filter-panel .tag-filter-chip.include {
+  background: #dff5e8;
+  border-color: #52a06d;
+  color: #214f37;
+}
+
+.search-tag-filter-panel .tag-filter-chip.exclude {
+  background: #fde3e3;
+  border-color: #d27979;
+  color: #7a2c2c;
 }
 
 .search-box input:focus {
@@ -667,6 +706,49 @@ body {
   height: 100px;
   object-fit: cover;
   display: block;
+  cursor: pointer;
+}
+
+.image-edit-content {
+  width: min(92vw, 460px);
+}
+
+.image-edit-preview-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  margin: 1rem 0;
+  border: 1px solid #dadada;
+  border-radius: 10px;
+  background: #f6f7f8;
+  overflow: hidden;
+}
+
+.image-edit-preview {
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  display: block;
+}
+
+.image-edit-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.image-edit-button {
+  padding: 0.7rem 0.5rem;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+  font: inherit;
+}
+
+.image-edit-actions {
+  margin-top: 1.25rem;
 }
 
 .note {
@@ -936,6 +1018,35 @@ li .content {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.75rem;
+}
+
+.saved-outfit-entry {
+  position: relative;
+}
+
+.outfit-favorite-toggle {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #888;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.outfit-favorite-toggle.filled {
+  color: var(--favorite-heart-color, #d43d4a);
+  border-color: rgba(212, 61, 74, 0.3);
 }
 
 .favorite-outfit-card-wrap {
@@ -1449,6 +1560,78 @@ button {
   margin: 0;
 }
 
+.outfit-help {
+  margin: 0 0 0.85rem;
+  text-align: center;
+  color: #4a4a4a;
+  font-size: 0.95rem;
+}
+
+.outfit-action-group {
+  position: relative;
+}
+
+.outfits-menu-button {
+  min-width: 6.5rem;
+}
+
+.clear-outfit-button {
+  background: #f2f2f2;
+  border: 1px solid #cfcfcf;
+  border-radius: 6px;
+  color: #333;
+}
+
+.clear-outfit-button:hover {
+  background: #eaeaea;
+}
+
+.saved-outfits-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  min-width: 220px;
+  max-width: min(90vw, 260px);
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #d8d8d8;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  padding: 0.35rem;
+}
+
+.saved-outfit-option {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.saved-outfit-option:hover {
+  background: #f3f7f6;
+  border-color: #d9eae2;
+}
+
+.saved-outfit-option.empty {
+  cursor: default;
+  opacity: 0.8;
+}
+
+.saved-outfit-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
 .outfit-display {
   position: relative;
   min-height: 500px;
@@ -1871,17 +2054,26 @@ button {
 }
 
 .tag-manager-item {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.2rem;
+  width: 100%;
+  max-width: 100%;
 }
 
-.delete-tag-button,
-.remove-item-tag-button {
+.tag-manager-item .item-tag {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.modal-content .delete-tag-button,
+.modal-content .remove-item-tag-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 1.2rem;
+  min-width: 1.2rem;
   height: 1.2rem;
   padding: 0;
   border: 0;
@@ -1891,6 +2083,7 @@ button {
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .delete-tag-button:hover,
@@ -1929,14 +2122,22 @@ button {
 
 .tag-manager-content {
   min-height: 170px;
+  max-height: min(75vh, 420px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .tag-manager-list {
   display: flex;
+  flex-direction: column;
   min-height: 2.5rem;
-  flex-wrap: wrap;
+  max-height: min(42vh, 260px);
   gap: 0.45rem;
   margin: 0.75rem 0;
+  padding-right: 0.25rem;
+  overflow-y: auto;
+  align-content: stretch;
 }
 
 .tag-create-form {

@@ -41,11 +41,23 @@ function isIos() {
   return /iPad|iPhone|iPod/.test(ua) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1 && /MacIntel/.test(navigator.platform));
 }
 
+function isTouchDevice() {
+  if (typeof window === 'undefined') return false;
+  return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || navigator.msMaxTouchPoints > 0;
+}
+
+function getOutfitMakerInstructions() {
+  return isTouchDevice()
+    ? 'Tap an item to inspect it. Drag to move it.'
+    : 'Left click to inspect an item. Right click and drag to move it.';
+}
+
 function heartSvg() {
   return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;
 }
 
 let collapsedDecks = { shirts: false, pants: false, shoes: false };
+let currentPage = "closet";
 let firebaseApp = null;
 let firebaseAuth = null;
 let firebaseDb = null;
@@ -423,10 +435,10 @@ async function deleteStoredImage(imageId) {
 
 async function getImageSource(item) {
   if (typeof item === "string") {
-    return item;
+    return isImageUrl(item) || isDataUrl(item) ? item : "";
   }
   if (item && typeof item.src === "string") {
-    return item.src;
+    return isImageUrl(item.src) || isDataUrl(item.src) ? item.src : "";
   }
   if (item && typeof item.imageId === "string") {
     return getStoredImage(item.imageId);
@@ -456,6 +468,214 @@ function hydrateStoredImage(image, item) {
       if (src) image.src = src;
     })
     .catch((error) => console.error("Could not load image:", error));
+}
+
+function matchesImageReference(candidate, reference) {
+  if (!candidate || !reference) {
+    return false;
+  }
+
+  const candidateKey = getGalleryImageKey(candidate);
+  const referenceKey = getGalleryImageKey(reference);
+  if (candidateKey && referenceKey && candidateKey === referenceKey) {
+    return true;
+  }
+
+  if (typeof candidate === "string" && typeof reference === "string") {
+    return candidate === reference;
+  }
+
+  if (typeof candidate === "string" && reference && typeof reference.src === "string") {
+    return candidate === reference.src;
+  }
+
+  if (typeof candidate === "object" && candidate !== null && reference && typeof reference.src === "string") {
+    return candidate.src === reference.src || candidate.imageId === reference.imageId;
+  }
+
+  if (typeof candidate === "object" && candidate !== null && typeof reference === "object" && reference !== null) {
+    return candidate.imageId === reference.imageId || candidate.src === reference.src;
+  }
+
+  return false;
+}
+
+function cloneImageReference(entry, newImageId) {
+  if (typeof entry === "string") {
+    return { imageId: newImageId, name: "", favorite: false };
+  }
+
+  if (!entry || typeof entry !== "object") {
+    return entry;
+  }
+
+  const { src, ...rest } = entry;
+  return { ...rest, imageId: newImageId };
+}
+
+async function applyImageTransformsToDataUrl(source, adjustments = {}) {
+  const rotationSteps = Number.isInteger(adjustments.rotation) ? ((adjustments.rotation % 360 + 360) % 360) : 0;
+  const flipHorizontal = Boolean(adjustments.flipHorizontal);
+  const flipVertical = Boolean(adjustments.flipVertical);
+
+  const image = new Image();
+  image.decoding = "async";
+  image.crossOrigin = "anonymous";
+
+  await new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = () => reject(new Error("The image could not be loaded for editing."));
+    image.src = source;
+  });
+
+  const canvas = document.createElement("canvas");
+  const shouldRotate = rotationSteps % 90 === 0 ? rotationSteps : 0;
+  const isPortrait = shouldRotate % 180 !== 0;
+  const width = isPortrait ? image.height : image.width;
+  const height = isPortrait ? image.width : image.height;
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, width, height);
+  context.translate(width / 2, height / 2);
+  context.rotate((shouldRotate * Math.PI) / 180);
+  context.scale(flipHorizontal ? -1 : 1, flipVertical ? -1 : 1);
+  context.drawImage(image, -image.width / 2, -image.height / 2);
+
+  return canvas.toDataURL("image/png");
+}
+
+function updateGalleryImageReferences(originalImage, updatedImageId) {
+  const normalizedOriginal = typeof originalImage === "string" ? originalImage : normalizeGalleryImage(originalImage) || originalImage;
+  const originalSource = typeof normalizedOriginal === "string" ? normalizedOriginal : normalizedOriginal?.src || "";
+
+  const gallery = loadGallery();
+  const nextGallery = gallery.map((galleryImage) => {
+    if (!matchesImageReference(galleryImage, normalizedOriginal)) {
+      return galleryImage;
+    }
+
+    const normalizedEntry = normalizeGalleryImage(galleryImage) || {};
+    return {
+      ...normalizedEntry,
+      imageId: updatedImageId,
+      src: undefined,
+      lastEditedAt: Date.now()
+    };
+  });
+  replaceGallery(nextGallery);
+
+  for (const deckName of Object.keys(decks)) {
+    decks[deckName] = decks[deckName].map((item) => {
+      if (typeof item === "string") {
+        if (item === originalSource) {
+          return { imageId: updatedImageId, name: "", favorite: false };
+        }
+        return item;
+      }
+
+      if (!isImageEntry(item)) {
+        return item;
+      }
+
+      if (matchesImageReference(item, normalizedOriginal)) {
+        const { src, ...rest } = item;
+        return { ...rest, imageId: updatedImageId };
+      }
+
+      if (item.secondImage && matchesImageReference(item.secondImage, normalizedOriginal)) {
+        return {
+          ...item,
+          secondImage: cloneImageReference(item.secondImage, updatedImageId)
+        };
+      }
+
+      return item;
+    });
+  }
+
+  saveDecks();
+}
+
+async function openImageEditModal(galleryImage) {
+  const displaySource = typeof galleryImage === "string"
+    ? galleryImage
+    : (galleryImage && typeof galleryImage.src === "string" ? galleryImage.src : await getImageSource(galleryImage));
+
+  if (!displaySource) {
+    alert("This image could not be loaded for editing.");
+    return;
+  }
+
+  const modal = document.createElement("div");
+  modal.className = "modal image-edit-modal";
+  modal.innerHTML = `
+    <div class="modal-content image-edit-content">
+      <h2>Edit image</h2>
+      <div class="image-edit-preview-shell">
+        <img class="image-edit-preview" alt="Image preview" src="${escapeHtmlAttribute(displaySource)}" />
+      </div>
+      <div class="image-edit-controls" aria-label="Image tools">
+        <button type="button" class="image-edit-button" data-action="rotate-left">↺ Rotate left</button>
+        <button type="button" class="image-edit-button" data-action="rotate-right">↻ Rotate right</button>
+        <button type="button" class="image-edit-button" data-action="flip-horizontal">⇄ Flip</button>
+        <button type="button" class="image-edit-button" data-action="flip-vertical">⇅ Flip upside down</button>
+      </div>
+      <div class="modal-actions image-edit-actions">
+        <button type="button" class="image-edit-cancel">Cancel</button>
+        <button type="button" class="danger image-edit-save">Save edit</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const preview = modal.querySelector(".image-edit-preview");
+  const saveButton = modal.querySelector(".image-edit-save");
+  const cancelButton = modal.querySelector(".image-edit-cancel");
+  const imageButtons = modal.querySelectorAll(".image-edit-button");
+  const state = { rotation: 0, flipHorizontal: false, flipVertical: false };
+
+  const updatePreview = async () => {
+    try {
+      const transformed = await applyImageTransformsToDataUrl(displaySource, state);
+      preview.src = transformed;
+    } catch (error) {
+      console.error("Could not render transformed preview:", error);
+      preview.src = displaySource;
+    }
+  };
+
+  imageButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.action;
+      if (action === "rotate-left") state.rotation = (state.rotation - 90 + 360) % 360;
+      if (action === "rotate-right") state.rotation = (state.rotation + 90) % 360;
+      if (action === "flip-horizontal") state.flipHorizontal = !state.flipHorizontal;
+      if (action === "flip-vertical") state.flipVertical = !state.flipVertical;
+      updatePreview();
+    });
+  });
+
+  cancelButton.addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) {
+      modal.remove();
+    }
+  });
+
+  saveButton.addEventListener("click", async () => {
+    try {
+      const transformedDataUrl = await applyImageTransformsToDataUrl(displaySource, state);
+      const newImageId = await storeImageData(transformedDataUrl);
+      updateGalleryImageReferences(galleryImage, newImageId);
+      modal.remove();
+      showImagesPage();
+    } catch (error) {
+      console.error("Could not save edited image:", error);
+      alert("This image cannot be edited because it is blocked or too large to process. Try a different image or upload a smaller one.");
+    }
+  });
 }
 
 function addImageInteractions(image, primaryImage, secondImage) {
@@ -575,35 +795,93 @@ function itemMatchesSearch(item, searchQuery, searchType = "contains") {
   return searchType === "starts-with" ? label.startsWith(query) : label.includes(query);
 }
 
+function getTagFilterState(selectedTags, tag) {
+  if (selectedTags instanceof Map) {
+    return selectedTags.get(tag) || "normal";
+  }
+  return selectedTags.has(tag) ? "include" : "normal";
+}
+
+function getTagFilterButtonLabel(selectedTags) {
+  return selectedTags.size ? `Filter (${selectedTags.size})` : "Filter";
+}
+
 function itemMatchesTags(item, selectedTags) {
-  return [...selectedTags].every((tag) => (item?.tags || []).includes(tag));
+  const itemTagSet = new Set(item?.tags || []);
+
+  if (selectedTags instanceof Map) {
+    const includeTags = [];
+    const excludeTags = [];
+
+    for (const [tag, state] of selectedTags.entries()) {
+      if (state === "include") {
+        includeTags.push(tag);
+      } else if (state === "exclude") {
+        excludeTags.push(tag);
+      }
+    }
+
+    if (includeTags.length && includeTags.some((tag) => !itemTagSet.has(tag))) {
+      return false;
+    }
+
+    if (excludeTags.some((tag) => itemTagSet.has(tag))) {
+      return false;
+    }
+
+    return true;
+  }
+
+  return [...selectedTags].every((tag) => itemTagSet.has(tag));
 }
 
 function bindTagFilter(buttonId, panelId, selectedTags, onChange) {
   const button = document.getElementById(buttonId);
   const panel = document.getElementById(panelId);
   if (!button || !panel) return;
+
   const render = () => {
     panel.replaceChildren();
     if (!closetTags.length) {
       panel.textContent = "Create tags from the Tags button first.";
       return;
     }
+
     closetTags.forEach((tag) => {
-      const label = document.createElement("label");
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = selectedTags.has(tag);
-      checkbox.addEventListener("change", () => {
-        checkbox.checked ? selectedTags.add(tag) : selectedTags.delete(tag);
-        button.textContent = selectedTags.size ? `Filter (${selectedTags.size})` : "Filter";
+      const tagButton = document.createElement("button");
+      tagButton.type = "button";
+      tagButton.className = "tag-filter-chip";
+
+      const state = getTagFilterState(selectedTags, tag);
+      tagButton.classList.toggle("include", state === "include");
+      tagButton.classList.toggle("exclude", state === "exclude");
+      tagButton.textContent = state === "exclude" ? `- ${tag}` : state === "include" ? `+ ${tag}` : tag;
+      tagButton.title = state === "include"
+        ? "Included in search"
+        : state === "exclude"
+          ? "Excluded from results"
+          : "Not filtering by tag";
+
+      tagButton.addEventListener("click", () => {
+        const currentState = getTagFilterState(selectedTags, tag);
+        const nextState = currentState === "include" ? "exclude" : currentState === "exclude" ? "normal" : "include";
+
+        if (nextState === "normal") {
+          selectedTags.delete?.(tag);
+        } else {
+          selectedTags.set(tag, nextState);
+        }
+
+        button.textContent = getTagFilterButtonLabel(selectedTags);
         onChange();
+        render();
       });
-      label.append(checkbox, document.createTextNode(tag));
-      panel.appendChild(label);
+
+      panel.appendChild(tagButton);
     });
   };
-  button.textContent = selectedTags.size ? `Filter (${selectedTags.size})` : "Filter";
+
+  button.textContent = getTagFilterButtonLabel(selectedTags);
   button.addEventListener("click", () => {
     panel.classList.toggle("hidden");
     render();
@@ -632,8 +910,9 @@ let closetTags = loadTags();
 let outfitBoardItems = loadOutfitBoard();
 let favoriteOutfits = loadFavoriteOutfits();
 let closetViewMode = loadClosetViewMode();
-let closetTagFilters = new Set();
-let favoritesTagFilters = new Set();
+let closetTagFilters = new Map();
+let favoritesTagFilters = new Map();
+window.lastSpawnedOutfitRef = null;
 const deleteConfirmation = document.getElementById("delete-confirmation");
 const confirmDeleteButton = document.getElementById("confirm-delete-button");
 const cancelDeleteButton = document.getElementById("cancel-delete-button");
@@ -1239,15 +1518,60 @@ function saveOutfitBoard() {
 function loadFavoriteOutfits() {
   try {
     const outfits = JSON.parse(localStorage.getItem(FAVORITE_OUTFITS_KEY));
-    return Array.isArray(outfits) ? outfits.filter((outfit) => Array.isArray(outfit?.items)) : [];
+    return Array.isArray(outfits)
+      ? outfits
+          .filter((outfit) => Array.isArray(outfit?.items))
+          .map((outfit) => ({
+            ...outfit,
+            favorite: Boolean(outfit.favorite),
+            items: Array.isArray(outfit.items) ? outfit.items : []
+          }))
+      : [];
   } catch {
     return [];
   }
 }
 
 function saveFavoriteOutfits() {
-  localStorage.setItem(FAVORITE_OUTFITS_KEY, JSON.stringify(favoriteOutfits));
+  localStorage.setItem(FAVORITE_OUTFITS_KEY, JSON.stringify(favoriteOutfits.map((outfit) => ({
+    ...outfit,
+    favorite: Boolean(outfit.favorite),
+    items: Array.isArray(outfit.items) ? outfit.items : []
+  }))));
   scheduleGoogleCloudSync();
+}
+
+function getOrderedSavedOutfits() {
+  return [...favoriteOutfits].sort((left, right) => Number(Boolean(right.favorite)) - Number(Boolean(left.favorite)) || 0);
+}
+
+function isLastSpawnedOutfitStillValid() {
+  if (!window.lastSpawnedOutfitRef || !outfitBoardItems.length) {
+    return false;
+  }
+  return favoriteOutfits.some((outfit) => outfit && outfit.id === window.lastSpawnedOutfitRef.id);
+}
+
+function toggleOutfitFavorite(outfitIndex, triggerButton = null) {
+  const outfit = favoriteOutfits[outfitIndex];
+  if (!outfit) {
+    return;
+  }
+
+  outfit.favorite = !Boolean(outfit.favorite);
+  saveFavoriteOutfits();
+
+  if (currentPage === "favorites") {
+    showFavoritesPage();
+    return;
+  }
+
+  if (triggerButton) {
+    const isFavorite = Boolean(outfit.favorite);
+    triggerButton.classList.toggle("filled", isFavorite);
+    triggerButton.textContent = isFavorite ? "❤" : "♡";
+    triggerButton.setAttribute("aria-label", isFavorite ? "Unfavorite outfit" : "Favorite outfit");
+  }
 }
 
 function loadClosetViewMode() {
@@ -1686,6 +2010,7 @@ function bindMainPageEvents() {
   const sidebarBackdrop = document.getElementById("sidebar-backdrop");
   const sidebarClose = document.getElementById("sidebar-close");
   const menuFavorites = document.getElementById("menu-favorites");
+  const menuOutfits = document.getElementById("menu-outfits");
   const menuGallery = document.getElementById("menu-gallery");
   const menuOutfit = document.getElementById("menu-outfit");
   const editBtn = document.getElementById("edit-button");
@@ -1719,6 +2044,14 @@ function bindMainPageEvents() {
       clearClosetSearch();
       closeSidebar();
       showFavoritesPage();
+    });
+  }
+
+  if (menuOutfits) {
+    menuOutfits.addEventListener("click", () => {
+      clearClosetSearch();
+      closeSidebar();
+      showOutfitsPage();
     });
   }
 
@@ -1961,6 +2294,7 @@ function saveNewCategory() {
 }
 
 function showMainPage() {
+  currentPage = "closet";
   document.body.innerHTML = `
     <div class="top-buttons">
       <div class="top-buttons-left">
@@ -1978,6 +2312,7 @@ function showMainPage() {
       <button type="button" id="sidebar-close" class="sidebar-close" aria-label="Close menu">×</button>
       <nav class="sidebar-nav" aria-label="Page options">
         <button type="button" id="menu-favorites" class="sidebar-item">My Favorites</button>
+        <button type="button" id="menu-outfits" class="sidebar-item">Outfits</button>
         <button type="button" id="menu-gallery" class="sidebar-item">The Image Gallery</button>
         <button type="button" id="menu-outfit" class="sidebar-item">Outfit Maker</button>
       </nav>
@@ -2194,6 +2529,9 @@ async function openItemDetails(deckName, index, context = {}) {
   modal.className = "item-details-modal";
   modal.setAttribute("role", "dialog");
   modal.setAttribute("aria-modal", "true");
+  const spawnButtonMarkup = primarySource || alternateSource
+    ? '<button type="button" class="details-spawn-button" data-spawn-in-creator>Spawn in creator</button>'
+    : "";
   modal.innerHTML = `
     <div class="item-details-content">
       <button type="button" class="details-nav-btn details-prev-btn" aria-label="Previous item">‹</button>
@@ -2205,6 +2543,7 @@ async function openItemDetails(deckName, index, context = {}) {
         <div class="details-name-row"><h2 class="details-name"></h2><button type="button" class="details-favorite-heart" aria-label="Favorite item">♡</button></div>
         <div class="details-tags"></div>
         <p class="details-description"></p>
+        ${spawnButtonMarkup}
       </div>
       <form class="details-edit-form hidden">
         <label for="details-name-input">Item name</label>
@@ -2226,7 +2565,9 @@ async function openItemDetails(deckName, index, context = {}) {
   const description = modal.querySelector(".details-description");
   const tagsContainer = modal.querySelector(".details-tags");
   const display = modal.querySelector(".details-display");
+  const spawnInCreatorButton = modal.querySelector(".details-spawn-button");
   const form = modal.querySelector(".details-edit-form");
+  const itemHasPhoto = Boolean(primarySource || alternateSource);
   const nameInput = modal.querySelector("#details-name-input");
   const descriptionInput = modal.querySelector("#details-description-input");
   const close = () => modal.remove();
@@ -2346,6 +2687,26 @@ async function openItemDetails(deckName, index, context = {}) {
   });
 
   modal.querySelector(".details-close-btn").addEventListener("click", close);
+  if (spawnInCreatorButton && itemHasPhoto) {
+    spawnInCreatorButton.addEventListener("click", () => {
+      const currentItem = decks[deckName]?.[index];
+      if (!currentItem) return;
+      if (outfitBoardItems.length >= 10) {
+        alert("An outfit can have up to 10 items.");
+        return;
+      }
+      outfitBoardItems.push({
+        ...getOutfitSource(currentItem),
+        name: getItemLabel(currentItem),
+        deckName,
+        itemIndex: index,
+        x: 40 + (outfitBoardItems.length % 4) * 18,
+        y: 12 + Math.floor(outfitBoardItems.length / 4) * 24,
+        scale: 1
+      });
+      saveOutfitBoard();
+    });
+  }
   favoriteHeart.addEventListener("click", () => {
     const currentItem = decks[deckName]?.[index];
     if (!currentItem) return;
@@ -2394,6 +2755,14 @@ async function openItemDetails(deckName, index, context = {}) {
 function openFavoriteOutfitDetails(outfitIndex) {
   const outfit = favoriteOutfits[outfitIndex];
   if (!outfit) return;
+  const sourcePage = currentPage === "outfits" ? "outfits" : "favorites";
+  const returnToSourcePage = () => {
+    if (sourcePage === "outfits") {
+      showOutfitsPage();
+      return;
+    }
+    showFavoritesPage();
+  };
   const modal = document.createElement("div");
   modal.className = "item-details-modal";
   modal.innerHTML = `
@@ -2401,7 +2770,7 @@ function openFavoriteOutfitDetails(outfitIndex) {
       <button type="button" class="details-close-btn" aria-label="Close outfit details">×</button>
       <div class="favorite-outfit-header-actions">
         <button type="button" class="details-edit-btn" aria-label="Edit outfit name">Edit</button>
-        <button type="button" class="favorite-outfit-delete-btn danger hidden" aria-label="Delete favorite outfit">Delete outfit</button>
+        <button type="button" class="favorite-outfit-delete-btn danger hidden" aria-label="Delete saved outfit">Delete outfit</button>
       </div>
       <div class="favorite-outfit-display"><h2 class="favorite-outfit-details-name"></h2><div class="favorite-outfit-detail-items"></div></div>
       <form class="favorite-outfit-edit-form hidden"><label for="favorite-outfit-name-input">Outfit name</label><input id="favorite-outfit-name-input" type="text" maxlength="80" placeholder="Outfit name" /><div class="modal-actions"><button type="button" class="favorite-outfit-cancel">Cancel</button><button type="submit">Save</button></div></form>
@@ -2479,7 +2848,7 @@ function openFavoriteOutfitDetails(outfitIndex) {
           favoriteOutfits.splice(outfitIndex, 1);
           saveFavoriteOutfits();
           modal.remove();
-          showFavoritesPage();
+          returnToSourcePage();
           return;
         }
 
@@ -2533,10 +2902,13 @@ function openFavoriteOutfitDetails(outfitIndex) {
   });
   deleteOutfitButton.addEventListener("click", () => {
     if (!window.confirm("Delete this saved outfit?")) return;
+    if (favoriteOutfits[outfitIndex]?.id === window.lastSpawnedOutfitRef?.id) {
+      window.lastSpawnedOutfitRef = null;
+    }
     favoriteOutfits.splice(outfitIndex, 1);
     saveFavoriteOutfits();
     modal.remove();
-    showFavoritesPage();
+    returnToSourcePage();
   });
   editForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -2596,11 +2968,22 @@ function showOutfitMaker() {
       <nav class="sidebar-nav" aria-label="Page options">
         <button type="button" id="menu-closet" class="sidebar-item">The Closet</button>
         <button type="button" id="menu-favorites" class="sidebar-item">Favorites</button>
+        <button type="button" id="menu-outfits" class="sidebar-item">Outfits</button>
         <button type="button" id="menu-gallery" class="sidebar-item">The Image Gallery</button>
       </nav>
     </aside>
     <main class="outfit-maker-page">
-      <div class="outfit-title-row"><h2>Outfit Maker</h2><button type="button" id="favorite-outfit-button">Favorite outfit</button><button type="button" id="add-outfit-button" aria-label="Add clothing item">+</button></div>
+      <div class="outfit-title-row">
+        <h2>Outfit Maker</h2>
+        <button type="button" id="favorite-outfit-button">Save outfit</button>
+        <div class="outfit-action-group">
+          <button type="button" id="outfits-menu-button" class="outfits-menu-button" aria-expanded="false">Outfits</button>
+          <div id="saved-outfits-menu" class="saved-outfits-menu hidden" role="menu" aria-label="Saved outfits menu"></div>
+        </div>
+        <button type="button" id="clear-outfit-button" class="clear-outfit-button" aria-label="Clear outfit board">Clear</button>
+        <button type="button" id="add-outfit-button" aria-label="Add clothing item">+</button>
+      </div>
+      <p id="outfit-help" class="outfit-help" aria-live="polite"></p>
       <div id="outfit-display" class="outfit-display">
         <p class="outfit-empty-message">Add up to 10 clothing items to build an outfit.</p>
       </div>
@@ -2609,6 +2992,82 @@ function showOutfitMaker() {
 
   addAuthControls();
   const display = document.getElementById("outfit-display");
+  const outfitHelp = document.getElementById("outfit-help");
+  if (outfitHelp) {
+    outfitHelp.textContent = getOutfitMakerInstructions();
+  }
+  const outfitsMenuButton = document.getElementById("outfits-menu-button");
+  const outfitsMenu = document.getElementById("saved-outfits-menu");
+
+  const closeOutfitsMenu = () => {
+    if (!outfitsMenu) return;
+    outfitsMenu.classList.add("hidden");
+    outfitsMenuButton?.setAttribute("aria-expanded", "false");
+  };
+
+  const renderOutfitsMenu = () => {
+    if (!outfitsMenu) return;
+    const orderedOutfits = getOrderedSavedOutfits();
+    if (!orderedOutfits.length) {
+      outfitsMenu.innerHTML = '<button type="button" class="saved-outfit-option empty" disabled>No saved outfits yet</button>';
+      return;
+    }
+
+    outfitsMenu.innerHTML = orderedOutfits.map((outfit, index) => {
+      const actualIndex = favoriteOutfits.indexOf(outfit);
+      const displayName = outfit.name?.trim() || `Outfit ${actualIndex + 1}`;
+      const favoritePrefix = outfit.favorite ? "❤ " : "";
+      return `
+        <button type="button" class="saved-outfit-option" data-outfit-index="${actualIndex}" role="menuitem">
+          <span class="saved-outfit-label">${favoritePrefix}${escapeHtmlAttribute(displayName)}</span>
+        </button>
+      `;
+    }).join("");
+
+    outfitsMenu.querySelectorAll(".saved-outfit-option").forEach((button) => {
+      button.addEventListener("click", () => {
+        const outfitIndex = Number(button.dataset.outfitIndex);
+        const chosenOutfit = favoriteOutfits[outfitIndex];
+        if (!chosenOutfit || !Array.isArray(chosenOutfit.items) || !chosenOutfit.items.length) {
+          return;
+        }
+
+        outfitBoardItems = chosenOutfit.items.map((item, itemIndex) => ({
+          ...item,
+          x: Number.isFinite(Number(item.x)) ? Number(item.x) : 12 + (itemIndex % 4) * 22,
+          y: Number.isFinite(Number(item.y)) ? Number(item.y) : 12 + Math.floor(itemIndex / 4) * 28,
+          scale: Number(item.scale) || 1
+        }));
+        window.lastSpawnedOutfitRef = {
+          id: chosenOutfit.id,
+          index: outfitIndex,
+          name: chosenOutfit.name || `Outfit ${outfitIndex + 1}`
+        };
+        saveOutfitBoard();
+        closeOutfitsMenu();
+        renderBoard();
+      });
+    });
+  };
+
+  outfitsMenuButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!outfitsMenu) return;
+    const willOpen = outfitsMenu.classList.contains("hidden");
+    outfitsMenu.classList.toggle("hidden", !willOpen);
+    outfitsMenuButton.setAttribute("aria-expanded", String(willOpen));
+    if (willOpen) {
+      renderOutfitsMenu();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const clickedInMenu = outfitsMenu?.contains(event.target);
+    const clickedOnToggle = outfitsMenuButton?.contains(event.target);
+    if (!clickedInMenu && !clickedOnToggle) {
+      closeOutfitsMenu();
+    }
+  });
   let activeOutfitDrag = null;
   display.addEventListener("pointermove", (event) => {
     if (!activeOutfitDrag || event.buttons !== 0) return;
@@ -2651,6 +3110,9 @@ function showOutfitMaker() {
       remove.addEventListener("click", (event) => {
         event.stopPropagation();
         outfitBoardItems.splice(index, 1);
+        if (!outfitBoardItems.length) {
+          window.lastSpawnedOutfitRef = null;
+        }
         saveOutfitBoard();
         renderBoard();
       });
@@ -2820,15 +3282,87 @@ function showOutfitMaker() {
     renderChoices();
   };
   document.getElementById("add-outfit-button").addEventListener("click", openPicker);
-  document.getElementById("favorite-outfit-button").addEventListener("click", () => {
+  document.getElementById("clear-outfit-button").addEventListener("click", () => {
     if (!outfitBoardItems.length) {
-      alert("Add at least one item before favoriting an outfit.");
       return;
     }
-    favoriteOutfits.push({ id: crypto.randomUUID(), items: outfitBoardItems.map((item) => ({ ...item })) });
-    saveFavoriteOutfits();
-    alert("Outfit saved to Your Favorite Outfits.");
+    outfitBoardItems = [];
+    window.lastSpawnedOutfitRef = null;
+    saveOutfitBoard();
+    renderBoard();
   });
+  const saveOutfitAsNew = () => {
+    favoriteOutfits.push({
+      id: crypto.randomUUID(),
+      favorite: false,
+      items: outfitBoardItems.map((item) => ({ ...item }))
+    });
+    saveFavoriteOutfits();
+    alert("Outfit saved to Outfits.");
+    showOutfitsPage();
+  };
+  const saveOutfitAsLastSpawned = () => {
+    if (!window.lastSpawnedOutfitRef) {
+      saveOutfitAsNew();
+      return;
+    }
+    const outfitIndex = favoriteOutfits.findIndex((outfit) => outfit.id === window.lastSpawnedOutfitRef.id);
+    if (outfitIndex === -1) {
+      saveOutfitAsNew();
+      return;
+    }
+    favoriteOutfits[outfitIndex] = {
+      ...favoriteOutfits[outfitIndex],
+      items: outfitBoardItems.map((item) => ({ ...item })),
+      name: favoriteOutfits[outfitIndex].name || window.lastSpawnedOutfitRef.name || `Outfit ${outfitIndex + 1}`
+    };
+    saveFavoriteOutfits();
+    alert(`Saved changes to ${window.lastSpawnedOutfitRef.name || "your outfit"}.`);
+    showOutfitsPage();
+  };
+  const handleSaveOutfit = () => {
+    if (!outfitBoardItems.length) {
+      alert("Add at least one item before saving an outfit.");
+      return;
+    }
+    if (!isLastSpawnedOutfitStillValid()) {
+      saveOutfitAsNew();
+      return;
+    }
+    const outfitIndex = favoriteOutfits.findIndex((outfit) => outfit.id === window.lastSpawnedOutfitRef.id);
+    const outfitExists = outfitIndex >= 0;
+    if (!outfitExists) {
+      window.lastSpawnedOutfitRef = null;
+      saveOutfitAsNew();
+      return;
+    }
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 360px;">
+        <h2>Save outfit</h2>
+        <div class="modal-actions" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
+          <button type="button" id="save-as-new-button">Save as new outfit</button>
+          <button type="button" id="save-as-last-button">Save as ${escapeHtmlAttribute(window.lastSpawnedOutfitRef.name || "last outfit")}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("#save-as-new-button").addEventListener("click", () => {
+      modal.remove();
+      saveOutfitAsNew();
+    });
+    modal.querySelector("#save-as-last-button").addEventListener("click", () => {
+      modal.remove();
+      saveOutfitAsLastSpawned();
+    });
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        modal.remove();
+      }
+    });
+  };
+  document.getElementById("favorite-outfit-button").addEventListener("click", handleSaveOutfit);
   const sidebar = document.getElementById("sidebar");
   const backdrop = document.getElementById("sidebar-backdrop");
   document.getElementById("menu-button").addEventListener("click", () => { sidebar.classList.remove("hidden"); backdrop.classList.remove("hidden"); });
@@ -2853,6 +3387,7 @@ function showBlankPage(message) {
       <nav class="sidebar-nav" aria-label="Page options">
         <button type="button" id="menu-closet" class="sidebar-item">The Closet</button>
         <button type="button" id="menu-favorites" class="sidebar-item">Favorites</button>
+        <button type="button" id="menu-outfits" class="sidebar-item">Outfits</button>
         <button type="button" id="menu-gallery" class="sidebar-item">The Image Gallery</button>
       </nav>
     </aside>
@@ -2871,6 +3406,7 @@ function showBlankPage(message) {
   const sidebarClose = document.getElementById("sidebar-close");
   const menuCloset = document.getElementById("menu-closet");
   const menuFavorites = document.getElementById("menu-favorites");
+  const menuOutfits = document.getElementById("menu-outfits");
   const menuGallery = document.getElementById("menu-gallery");
 
   const openSidebar = () => {
@@ -2910,6 +3446,13 @@ function showBlankPage(message) {
     });
   }
 
+  if (menuOutfits) {
+    menuOutfits.addEventListener("click", () => {
+      closeSidebar();
+      showOutfitsPage();
+    });
+  }
+
   if (menuGallery) {
     menuGallery.addEventListener("click", () => {
       closeSidebar();
@@ -2946,6 +3489,7 @@ function showImagesPage() {
       <nav class="sidebar-nav" aria-label="Page options">
         <button type="button" id="menu-closet" class="sidebar-item">The Closet</button>
         <button type="button" id="menu-favorites" class="sidebar-item">Favorites</button>
+        <button type="button" id="menu-outfits" class="sidebar-item">Outfits</button>
         <button type="button" id="menu-outfit" class="sidebar-item">Outfit Maker</button>
       </nav>
     </aside>
@@ -3002,6 +3546,16 @@ function showImagesPage() {
     if (imageId) hydrateStoredImage(image, { imageId });
   });
 
+  document.querySelectorAll(".gallery-item img").forEach((image) => {
+    image.addEventListener("click", () => {
+      const galleryIndex = Number(image.closest(".gallery-item")?.querySelector(".gallery-use")?.dataset.galleryIndex);
+      const galleryImage = sortedGallery[galleryIndex];
+      if (galleryImage) {
+        openImageEditModal(galleryImage);
+      }
+    });
+  });
+
   const menuButton = document.getElementById("menu-button");
   const pageBackButton = document.getElementById("page-back-button");
   const sidebar = document.getElementById("sidebar");
@@ -3009,6 +3563,7 @@ function showImagesPage() {
   const sidebarClose = document.getElementById("sidebar-close");
   const menuCloset = document.getElementById("menu-closet");
   const menuFavorites = document.getElementById("menu-favorites");
+  const menuOutfits = document.getElementById("menu-outfits");
   const menuOutfit = document.getElementById("menu-outfit");
 
   const openSidebar = () => {
@@ -3048,6 +3603,13 @@ function showImagesPage() {
     menuFavorites.addEventListener("click", () => {
       closeSidebar();
       showFavoritesPage();
+    });
+  }
+
+  if (menuOutfits) {
+    menuOutfits.addEventListener("click", () => {
+      closeSidebar();
+      showOutfitsPage();
     });
   }
 
@@ -3286,7 +3848,109 @@ function showImagesPage() {
   });
 }
 
+function showOutfitsPage() {
+  currentPage = "outfits";
+  const outfitsHtml = favoriteOutfits.length ? `
+    <section class="deck favorite-outfits-deck">
+      <div class="deck-header"><h2>Your Outfits (${favoriteOutfits.length})</h2></div>
+      <div class="favorite-outfit-list">
+        ${favoriteOutfits.map((outfit, index) => `
+          <div class="saved-outfit-entry">
+            <button type="button" class="outfit-favorite-toggle ${outfit.favorite ? "filled" : ""}" data-outfit-index="${index}" aria-label="${outfit.favorite ? "Unfavorite outfit" : "Favorite outfit"}">${outfit.favorite ? "❤" : "♡"}</button>
+            <button type="button" class="favorite-outfit-card" data-outfit-index="${index}" aria-label="View outfit ${index + 1}">
+              <span class="favorite-outfit-collage" data-outfit-images="${index}"></span>
+              <span class="favorite-outfit-name">${escapeHtmlAttribute(outfit.name || `Outfit ${index + 1}`)}</span>
+            </button>
+          </div>
+        `).join("")}
+      </div>
+    </section>` : `
+    <section class="deck favorite-outfits-deck">
+      <div class="deck-header"><h2>Your Outfits (0)</h2></div>
+      <p class="empty-message">No saved outfits yet. Create one in the outfit maker.</p>
+    </section>`;
+
+  document.body.innerHTML = `
+    <div class="top-buttons">
+      <button type="button" id="menu-button" class="page-switch menu-button" aria-label="Open menu">☰</button>
+      <button type="button" id="outfits-back-button" class="page-switch" aria-label="Back">←</button>
+    </div>
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
+    <aside id="sidebar" class="sidebar hidden" aria-hidden="true">
+      <button type="button" id="sidebar-close" class="sidebar-close" aria-label="Close menu">×</button>
+      <nav class="sidebar-nav" aria-label="Page options">
+        <button type="button" id="menu-closet" class="sidebar-item">The Closet</button>
+        <button type="button" id="menu-favorites" class="sidebar-item">Favorites</button>
+        <button type="button" id="menu-outfits" class="sidebar-item">Outfits</button>
+        <button type="button" id="menu-gallery" class="sidebar-item">The Image Gallery</button>
+        <button type="button" id="menu-outfit" class="sidebar-item">Outfit Maker</button>
+      </nav>
+    </aside>
+    <main class="outfits-page">
+      <div class="favorites-title-row">
+        <h2>Outfits</h2>
+      </div>
+      ${outfitsHtml}
+    </main>
+  `;
+
+  addAuthControls();
+  document.querySelectorAll(".favorite-outfit-collage").forEach((collage) => {
+    const outfit = favoriteOutfits[Number(collage.dataset.outfitImages)];
+    (outfit?.items || []).slice(0, 4).forEach((item) => {
+      const image = document.createElement("img");
+      image.alt = item.name || "outfit item";
+      hydrateStoredImage(image, getOutfitSource(item));
+      collage.appendChild(image);
+    });
+  });
+
+  document.querySelectorAll(".favorite-outfit-card").forEach((card) => {
+    card.addEventListener("click", () => openFavoriteOutfitDetails(Number(card.dataset.outfitIndex)));
+  });
+
+  document.querySelectorAll(".outfit-favorite-toggle").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleOutfitFavorite(Number(button.dataset.outfitIndex), button);
+    });
+  });
+
+  const menuButton = document.getElementById("menu-button");
+  const outfitsBackButton = document.getElementById("outfits-back-button");
+  const sidebar = document.getElementById("sidebar");
+  const sidebarBackdrop = document.getElementById("sidebar-backdrop");
+  const sidebarClose = document.getElementById("sidebar-close");
+  const menuCloset = document.getElementById("menu-closet");
+  const menuFavorites = document.getElementById("menu-favorites");
+  const menuOutfits = document.getElementById("menu-outfits");
+  const menuGallery = document.getElementById("menu-gallery");
+  const menuOutfit = document.getElementById("menu-outfit");
+
+  const openSidebar = () => {
+    sidebar.classList.remove("hidden");
+    sidebarBackdrop.classList.remove("hidden");
+    sidebar.setAttribute("aria-hidden", "false");
+  };
+
+  const closeSidebar = () => {
+    sidebar.classList.add("hidden");
+    sidebarBackdrop.classList.add("hidden");
+    sidebar.setAttribute("aria-hidden", "true");
+  };
+
+  if (menuButton) menuButton.addEventListener("click", openSidebar);
+  if (sidebarClose) sidebarClose.addEventListener("click", closeSidebar);
+  if (sidebarBackdrop) sidebarBackdrop.addEventListener("click", closeSidebar);
+  if (menuCloset) menuCloset.addEventListener("click", showMainPage);
+  if (menuFavorites) menuFavorites.addEventListener("click", showFavoritesPage);
+  if (menuGallery) menuGallery.addEventListener("click", showImagesPage);
+  if (menuOutfit) menuOutfit.addEventListener("click", showOutfitMaker);
+  if (outfitsBackButton) outfitsBackButton.addEventListener("click", showMainPage);
+}
+
 function showFavoritesPage() {
+  currentPage = "favorites";
   applyFavoriteHeartColor();
   const searchQuery = favoritesSearchQuery.trim();
   let visibleFavoriteCount = 0;
@@ -3337,16 +4001,22 @@ function showFavoritesPage() {
         </ul>
       </section>`;
   }).join("");
-  const favoriteOutfitsHtml = favoriteOutfits.length ? `
+  const favoritedOutfits = favoriteOutfits.filter((outfit) => outfit.favorite);
+  const favoriteOutfitsHtml = favoritedOutfits.length ? `
     <section class="deck favorite-outfits-deck">
-      <div class="deck-header"><h2>Your Favorite Outfits (${favoriteOutfits.length})</h2></div>
+      <div class="deck-header"><h2>Your Favorite Outfits (${favoritedOutfits.length})</h2></div>
       <div class="favorite-outfit-list">
-        ${favoriteOutfits.map((outfit, index) => `
-          <button type="button" class="favorite-outfit-card" data-outfit-index="${index}" aria-label="View favorite outfit ${index + 1}">
-            <span class="favorite-outfit-collage" data-outfit-images="${index}"></span>
-            <span class="favorite-outfit-name">${escapeHtmlAttribute(outfit.name || `Outfit ${index + 1}`)}</span>
-          </button>
-        `).join("")}
+        ${favoritedOutfits.map((outfit, index) => {
+          const outfitIndex = favoriteOutfits.indexOf(outfit);
+          return `
+            <div class="saved-outfit-entry">
+              <button type="button" class="outfit-favorite-toggle ${outfit.favorite ? "filled" : ""}" data-outfit-index="${outfitIndex}" aria-label="${outfit.favorite ? "Unfavorite outfit" : "Favorite outfit"}">${outfit.favorite ? "❤" : "♡"}</button>
+              <button type="button" class="favorite-outfit-card" data-outfit-index="${outfitIndex}" aria-label="View favorite outfit ${index + 1}">
+                <span class="favorite-outfit-collage" data-outfit-images="${outfitIndex}"></span>
+                <span class="favorite-outfit-name">${escapeHtmlAttribute(outfit.name || `Outfit ${outfitIndex + 1}`)}</span>
+              </button>
+            </div>`;
+        }).join("")}
       </div>
     </section>` : "";
 
@@ -3361,6 +4031,8 @@ function showFavoritesPage() {
       <button type="button" id="sidebar-close" class="sidebar-close" aria-label="Close menu">×</button>
       <nav class="sidebar-nav" aria-label="Page options">
         <button type="button" id="menu-closet" class="sidebar-item">The Closet</button>
+        <button type="button" id="menu-favorites" class="sidebar-item">Favorites</button>
+        <button type="button" id="menu-outfits" class="sidebar-item">Outfits</button>
         <button type="button" id="menu-gallery" class="sidebar-item">The Image Gallery</button>
         <button type="button" id="menu-outfit" class="sidebar-item">Outfit Maker</button>
       </nav>
@@ -3421,12 +4093,20 @@ function showFavoritesPage() {
     card.addEventListener("click", () => openFavoriteOutfitDetails(Number(card.dataset.outfitIndex)));
   });
 
+  document.querySelectorAll(".outfit-favorite-toggle").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleOutfitFavorite(Number(button.dataset.outfitIndex), button);
+    });
+  });
+
   const menuButton = document.getElementById("menu-button");
   const favoritesBackButton = document.getElementById("favorites-back-button");
   const sidebar = document.getElementById("sidebar");
   const sidebarBackdrop = document.getElementById("sidebar-backdrop");
   const sidebarClose = document.getElementById("sidebar-close");
   const menuCloset = document.getElementById("menu-closet");
+  const menuOutfits = document.getElementById("menu-outfits");
   const menuGallery = document.getElementById("menu-gallery");
   const menuOutfit = document.getElementById("menu-outfit");
   const favoritesSearch = document.getElementById("favorites-search");
@@ -3518,6 +4198,14 @@ function showFavoritesPage() {
     menuCloset.addEventListener("click", () => {
       clearFavoritesSearch();
       showMainPage();
+    });
+  }
+
+  if (menuOutfits) {
+    menuOutfits.addEventListener("click", () => {
+      clearFavoritesSearch();
+      closeSidebar();
+      showOutfitsPage();
     });
   }
 
